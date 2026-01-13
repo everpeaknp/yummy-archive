@@ -54,133 +54,74 @@ export default function OrdersDayPage() {
     }
   }, [restaurantId, day]);
 
-  const fetchOrders = async (querySuffix?: string) => {
+  // Helper for parsing
+  const parseOrdersResponse = (raw: any): any[] => {
+      let data: any[] = [];
+      if (Array.isArray(raw)) data = raw;
+      else if (raw?.orders && Array.isArray(raw.orders)) data = raw.orders;
+      else if (raw?.data && Array.isArray(raw.data)) data = raw.data;
+      else if (raw?.data?.orders && Array.isArray(raw.data.orders)) data = raw.data.orders;
+      else if (raw?.results && Array.isArray(raw.results)) data = raw.results;
+      else if (raw?.data?.data && Array.isArray(raw.data.data)) data = raw.data.data;
+      return data || [];
+  };
+
+  const fetchOrders = async () => {
     setLoading(true);
-    setDebugError(null);
-    let debugLogs: string[] = [];
-    
     try {
-      if (!restaurantId) {
-        setDebugError("No restaurant ID available");
-        setLoading(false);
-        return;
-      }
+      if (!restaurantId) return;
 
+      // 1. Try to fetch specifically for this date if API supports it
+      // Assuming API supports start_date/end_date filtering which is much efficient
+      // If not, we fall back to fetching recent 500 and filtering client side (legacy behavior)
+      
+      const start = `${day}T00:00:00`;
+      const end = `${day}T23:59:59`;
+      
+      // Try date range query first
       let allOrders: any[] = [];
-      
-      if (querySuffix) {
-        // ... (Keep existing suffix logic) ...
-        const suffix = querySuffix.startsWith('&') ? querySuffix : `&status=${querySuffix}`;
-        debugLogs.push(`TESTING QUERY: "${suffix}"`);
-        
-        const url = `/orders/?restaurant_id=${restaurantId}&limit=200${suffix}`;
-        const res = await mainApi.get(url);
-        
-        const raw = res.data;
-        if (Array.isArray(raw)) allOrders = raw;
-        else if (raw?.orders && Array.isArray(raw.orders)) allOrders = raw.orders;
-        else if (raw?.data && Array.isArray(raw.data)) allOrders = raw.data;
-        else if (raw?.results && Array.isArray(raw.results)) allOrders = raw.results;
-        
-        debugLogs.push(`Success! Got ${allOrders.length} orders.`);
-      } else {
-        // Default Load: Try /orders/ with ALL statuses
-        debugLogs.push(`Fetching /orders/...`);
-        
-        // Try fetching ALL orders without status filter first
-        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`; 
-        const res = await mainApi.get(url);
-        
-        const raw = res.data;
-        debugLogs.push(`Response Keys: ${Object.keys(raw || {}).join(', ')}`);
-
-        // Check what type 'raw' is
-        if (raw?.data) {
-          const dataType = Array.isArray(raw.data) ? 'array' : typeof raw.data;
-          debugLogs.push(`raw.data type: ${dataType}`);
-          if (!Array.isArray(raw.data) && typeof raw.data === 'object') {
-            debugLogs.push(`raw.data keys: ${Object.keys(raw.data).join(', ')}`);
-          }
-        }
-
-        // Explicit Extraction with DEEP checking
-        if (Array.isArray(raw)) {
-             allOrders = raw;
-             debugLogs.push(`Extracted: raw is array (${raw.length})`);
-        } else if (raw?.orders && Array.isArray(raw.orders)) {
-             allOrders = raw.orders;
-             debugLogs.push(`Extracted from .orders (${allOrders.length})`);
-        } else if (raw?.data && Array.isArray(raw.data)) {
-             allOrders = raw.data;
-             debugLogs.push(`Extracted from .data (${allOrders.length})`);
-        } else if (raw?.data?.orders && Array.isArray(raw.data.orders)) {
-             // DEEP: data.orders
-             allOrders = raw.data.orders;
-             debugLogs.push(`Extracted from .data.orders (${allOrders.length})`);
-        } else if (raw?.data?.data && Array.isArray(raw.data.data)) {
-             // DEEP: data.data
-             allOrders = raw.data.data;
-             debugLogs.push(`Extracted from .data.data (${allOrders.length})`);
-        } else if (raw?.results && Array.isArray(raw.results)) {
-             allOrders = raw.results;
-             debugLogs.push(`Extracted from .results (${allOrders.length})`);
-        } else {
-             debugLogs.push(`Warning: Could not find array. Check raw.data type above.`);
-        }
-      }
-
-      // Final Safety Check
-      if (!Array.isArray(allOrders)) {
-          debugLogs.push("Critical: allOrders is not an array. Resetting to empty.");
-          allOrders = [];
-      }
-
-      // Deduplicate State Update
-      let uniqueOrders = [];
       try {
-        uniqueOrders = Array.from(new Map(allOrders.map(o => [o.id || o.order_id, o])).values());
+        const url = `/orders/?restaurant_id=${restaurantId}&start_date=${start}&end_date=${end}&limit=500`; 
+        const res = await mainApi.get(url);
+        allOrders = parseOrdersResponse(res.data);
       } catch (e) {
-        debugLogs.push("Error during deduplication map");
-        uniqueOrders = allOrders;
+        // Fallback to fetch all recent if date filter fails (legacy API compatibility)
+        console.warn("Date filter failed, falling back to recent orders", e);
+        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`;
+        const res = await mainApi.get(url);
+        allOrders = parseOrdersResponse(res.data);
       }
-      
-      // Update Debug State
-      let range = 'No orders fetched';
-      if (uniqueOrders.length > 0) {
-        const dates = uniqueOrders.map(o => o.created_at || o.business_date).filter(Boolean).sort();
-        range = `${dates[0]} to ${dates[dates.length - 1]}`;
-        const foundStatuses = Array.from(new Set(uniqueOrders.map(o => o.status)));
-        debugLogs.push(`Statuses found in batch: ${foundStatuses.join(', ')}`);
-      }
-      setDebugState({
-        totalFetched: uniqueOrders.length,
-        dateRange: range
-      });
 
-      // Filter by date
+      // Deduplicate
+      const uniqueOrders = Array.from(new Map(allOrders.map(o => [o.id || o.order_id, o])).values());
+
+      // Client-side strict date filtering (Double check)
+      // This handles timezone issues effectively by checking the YYYY-MM-DD string
       const dayOrders = uniqueOrders.filter((order: any) => {
         const orderDate = order.created_at || order.business_date;
         if (!orderDate) return false;
-        const orderDay = orderDate.split('T')[0];
-        return orderDay === day;
+        
+        // Robust date parsing
+        try {
+           // Try ISO split first
+           if (orderDate.startsWith(day)) return true;
+           
+           // Fallback to Date object parsing
+           const d = new Date(orderDate);
+           if (isNaN(d.getTime())) return false;
+           return format(d, 'yyyy-MM-dd') === day;
+        } catch {
+           return false;
+        }
       });
       
       setOrders(dayOrders);
-      if (uniqueOrders.length === 0) {
-         setDebugError("Fetched 0 orders. Try the Test Buttons below.");
-      }
+      
     } catch (err: any) {
       console.error("Failed to fetch orders:", err);
-      const msg = err.response?.data?.detail 
-        ? JSON.stringify(err.response.data) 
-        : (err.message || 'Unknown Error');
-      
-      setDebugError(`Fail: ${msg}`);
-      debugLogs.push(`ERROR: ${msg}`);
       setOrders([]);
     } finally {
       setLoading(false);
-      setLastDebugLog(debugLogs.join('\n'));
     }
   };
 
