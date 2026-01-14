@@ -457,7 +457,7 @@ export default function HistoryPage() {
                   <List className="h-12 w-12 mb-2 opacity-20" />
                   <p>No orders found</p>
                   <p>No orders found</p>
-                  {(searchQuery || statusFilter !== 'all' || channelFilter !== 'all' || dateFilter || minAmount || maxAmount) && (
+                  {(searchQuery || statusFilter !== 'all' || channelFilter !== 'all' || dateFilter || priceRange.min > 0 || priceRange.max < globalMaxAmount) && (
                     <p className="text-xs mt-1">Try adjusting your filters</p>
                   )}
                 </div>
