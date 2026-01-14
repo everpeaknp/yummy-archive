@@ -54,7 +54,7 @@ export default function OrdersDayPage() {
     }
   }, [restaurantId, day]);
 
-  // Helper for parsing
+  // --- HELPER: Robust Response Parser ---
   const parseOrdersResponse = (raw: any): any[] => {
       let data: any[] = [];
       if (Array.isArray(raw)) data = raw;
@@ -63,65 +63,102 @@ export default function OrdersDayPage() {
       else if (raw?.data?.orders && Array.isArray(raw.data.orders)) data = raw.data.orders;
       else if (raw?.results && Array.isArray(raw.results)) data = raw.results;
       else if (raw?.data?.data && Array.isArray(raw.data.data)) data = raw.data.data;
+      
       return data || [];
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (querySuffix?: string) => {
     setLoading(true);
+    setDebugError(null);
+    let debugLogs: string[] = [];
+    
     try {
-      if (!restaurantId) return;
-
-      // 1. Try to fetch specifically for this date if API supports it
-      // Assuming API supports start_date/end_date filtering which is much efficient
-      // If not, we fall back to fetching recent 500 and filtering client side (legacy behavior)
-      
-      const start = `${day}T00:00:00`;
-      const end = `${day}T23:59:59`;
-      
-      // Try date range query first
-      let allOrders: any[] = [];
-      try {
-        const url = `/orders/?restaurant_id=${restaurantId}&start_date=${start}&end_date=${end}&limit=500`; 
-        const res = await mainApi.get(url);
-        allOrders = parseOrdersResponse(res.data);
-      } catch (e) {
-        // Fallback to fetch all recent if date filter fails (legacy API compatibility)
-        console.warn("Date filter failed, falling back to recent orders", e);
-        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`;
-        const res = await mainApi.get(url);
-        allOrders = parseOrdersResponse(res.data);
+      if (!restaurantId) {
+        setDebugError("No restaurant ID available");
+        setLoading(false);
+        return;
       }
 
-      // Deduplicate
-      const uniqueOrders = Array.from(new Map(allOrders.map(o => [o.id || o.order_id, o])).values());
+      let allOrders: any[] = [];
+      
+      if (querySuffix) {
+        // ... (Keep existing suffix logic) ...
+        const suffix = querySuffix.startsWith('&') ? querySuffix : `&status=${querySuffix}`;
+        debugLogs.push(`TESTING QUERY: "${suffix}"`);
+        
+        const url = `/orders/?restaurant_id=${restaurantId}&limit=200${suffix}`;
+        const res = await mainApi.get(url);
+        
+        allOrders = parseOrdersResponse(res.data);
+        debugLogs.push(`Success! Got ${allOrders.length} orders.`);
+      } else {
+        // Default Load: Try /orders/ with ALL statuses
+        debugLogs.push(`Fetching /orders/...`);
+        
+        // Try fetching ALL orders without status filter first
+        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`; 
+        const res = await mainApi.get(url);
+        
+        const raw = res.data;
+        debugLogs.push(`Response Keys: ${Object.keys(raw || {}).join(', ')}`);
+        
+        // Use robust parser
+        allOrders = parseOrdersResponse(raw);
+        debugLogs.push(`Extracted ${allOrders.length} orders using parseOrdersResponse`);
+      }
 
-      // Client-side strict date filtering (Double check)
-      // This handles timezone issues effectively by checking the YYYY-MM-DD string
+      // Final Safety Check
+      if (!Array.isArray(allOrders)) {
+          debugLogs.push("Critical: allOrders is not an array. Resetting to empty.");
+          allOrders = [];
+      }
+
+      // Deduplicate State Update
+      let uniqueOrders = [];
+      try {
+        uniqueOrders = Array.from(new Map(allOrders.map(o => [o.id || o.order_id, o])).values());
+      } catch (e) {
+        debugLogs.push("Error during deduplication map");
+        uniqueOrders = allOrders;
+      }
+      
+      // Update Debug State
+      let range = 'No orders fetched';
+      if (uniqueOrders.length > 0) {
+        const dates = uniqueOrders.map(o => o.created_at || o.business_date).filter(Boolean).sort();
+        range = `${dates[0]} to ${dates[dates.length - 1]}`;
+        const foundStatuses = Array.from(new Set(uniqueOrders.map(o => o.status)));
+        debugLogs.push(`Statuses found in batch: ${foundStatuses.join(', ')}`);
+      }
+      setDebugState({
+        totalFetched: uniqueOrders.length,
+        dateRange: range
+      });
+
+      // Filter by date
       const dayOrders = uniqueOrders.filter((order: any) => {
         const orderDate = order.created_at || order.business_date;
         if (!orderDate) return false;
-        
-        // Robust date parsing
-        try {
-           // Try ISO split first
-           if (orderDate.startsWith(day)) return true;
-           
-           // Fallback to Date object parsing
-           const d = new Date(orderDate);
-           if (isNaN(d.getTime())) return false;
-           return format(d, 'yyyy-MM-dd') === day;
-        } catch {
-           return false;
-        }
+        const orderDay = orderDate.split('T')[0];
+        return orderDay === day;
       });
       
       setOrders(dayOrders);
-      
+      if (uniqueOrders.length === 0) {
+         setDebugError("Fetched 0 orders. Try the Test Buttons below.");
+      }
     } catch (err: any) {
       console.error("Failed to fetch orders:", err);
+      const msg = err.response?.data?.detail 
+        ? JSON.stringify(err.response.data) 
+        : (err.message || 'Unknown Error');
+      
+      setDebugError(`Fail: ${msg}`);
+      debugLogs.push(`ERROR: ${msg}`);
       setOrders([]);
     } finally {
       setLoading(false);
+      setLastDebugLog(debugLogs.join('\n'));
     }
   };
 
@@ -179,34 +216,39 @@ export default function OrdersDayPage() {
       return;
     }
 
-    const action = appendMode ? 'Append' : 'Archive';
-    if (!confirm(`${action} ${selectedIds.size} selected order(s)?`)) return;
+    const action = appendMode ? 'Append to archive' : 'Archive full day';
+    if (!confirm(`${action}, then mark ${selectedIds.size} selected order(s) for deletion from main DB.\n\nContinue?`)) return;
 
     setArchiving(true);
     try {
+      // Send order_ids - backend will:
+      // 1. Determine which day(s) these orders belong to
+      // 2. Archive FULL DAY for each day
+      // 3. Store order_ids in manifest's delete_order_ids
       const payload: any = {
         restaurant_id: restaurantId,
-        order_ids: Array.from(selectedIds)
+        order_ids: Array.from(selectedIds)  // Guide's approach
       };
       if (appendMode) {
         payload.append = true;
       }
 
       const res = await archiveApi.post('/jobs/archive', payload);
+      const jobId = res.data.job_id || res.data.jobs?.[0]?.job_id;
       
       const msg = appendMode 
-        ? `Orders appended to existing archive! Job ID: ${res.data.job_id}`
-        : `Archive job created! Job ID: ${res.data.job_id}`;
+        ? `Full day archived (appended)! Selected orders marked for deletion.`
+        : `Full day archived! Selected orders marked for deletion.`;
       
       alert(msg);
-      // Wait a bit before redirecting for append, or just refresh
+      
+      // Navigate WITHOUT URL params - manifest has the selection
       setTimeout(() => {
-        router.push(`/archive/${res.data.job_id}`);
+        router.push(`/archive/${jobId}`);
       }, 500);
     } catch (err: any) {
       console.error("Failed to create archive job:", err);
       
-      // Better error handling for backend issues
       const status = err.response?.status;
       let errorMsg = err.response?.data?.message || err.response?.data?.detail || err.message;
       
@@ -228,8 +270,8 @@ export default function OrdersDayPage() {
       return;
     }
 
-    const action = appendMode ? 'Append' : 'Archive';
-    if (!confirm(`${action} all ${orders.length} order(s) for ${day}?`)) return;
+    const action = appendMode ? 'Append to archive' : 'Archive full day';
+    if (!confirm(`${action} and mark ALL ${orders.length} order(s) for deletion from main DB?\n\nDay: ${day}\n\nContinue?`)) return;
 
     setArchiving(true);
     try {
@@ -327,14 +369,14 @@ export default function OrdersDayPage() {
             disabled={archiving || selectedIds.size === 0}
           >
             {archiving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Archive className="h-4 w-4 mr-2" />}
-            {appendMode ? 'Append Selected' : 'Archive Selected'} ({selectedIds.size})
+            {appendMode ? 'Append & Delete Selected' : 'Archive Day & Delete Selected'} ({selectedIds.size})
           </Button>
           <Button 
             onClick={handleArchiveAll}
             disabled={archiving || orders.length === 0}
           >
             {archiving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Archive className="h-4 w-4 mr-2" />}
-            {appendMode ? 'Append All Day' : 'Archive All Day'}
+            {appendMode ? 'Append & Delete All' : 'Archive Day & Delete All'}
           </Button>
         </div>
       </div>

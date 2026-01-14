@@ -1,0 +1,489 @@
+[
+  {
+    "path": "/health",
+    "method": "GET",
+    "summary": "Health Check",
+    "description": "Returns the status and version of the API.",
+    "tags": ["System"],
+    "parameters": [],
+    "response": {
+      "status": "ok",
+      "version": "1.0.4-table-fix"
+    }
+  },
+  {
+    "path": "/debug/global-error",
+    "method": "GET",
+    "summary": "Get Global Error",
+    "description": "Returns the last captured global error details.",
+    "tags": ["Debug"],
+    "parameters": [],
+    "response": {
+      "last_error": "object or null"
+    }
+  },
+  {
+    "path": "/debug/db-check",
+    "method": "GET",
+    "summary": "Database Check",
+    "description": "Checks connections to configured databases (reader, deleter, internal).",
+    "tags": ["Debug"],
+    "parameters": [],
+    "response": {
+      "reader": "info",
+      "deleter": "info",
+      "internal": "info"
+    }
+  },
+  {
+    "path": "/jobs/archive",
+    "method": "POST",
+    "summary": "Create Archive Job",
+    "description": "Initiates a background job to archive orders based on IDs or date range. Supports appending new orders to existing archives.",
+    "tags": ["Jobs"],
+    "request_body": {
+      "type": "json",
+      "fields": [
+        {
+          "name": "restaurant_id",
+          "type": "integer",
+          "required": true,
+          "description": "ID of the restaurant"
+        },
+        {
+          "name": "order_ids",
+          "type": "array[integer]",
+          "required": "conditional (Provide order_ids or date range)",
+          "description": "List of specific order IDs to archive"
+        },
+        {
+          "name": "start_date",
+          "type": "string (datetime ISO format)",
+          "required": "conditional",
+          "description": "Start date for archive range"
+        },
+        {
+          "name": "end_date",
+          "type": "string (datetime ISO format)",
+          "required": "conditional",
+          "description": "End date for archive range"
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "default": "from context",
+          "description": "User initiating the job"
+        },
+        {
+          "name": "append",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "If true, append new orders to existing archive for the same day instead of returning existing job"
+        }
+      ]
+    },
+    "response": {
+      "jobs": [
+        {
+          "archive_day": "string (YYYY-MM-DD)",
+          "job_id": "string (UUID)",
+          "status": "string (PENDING|EXPORTING|EXPORTED|FAILED)",
+          "created": "boolean - true if new job was created",
+          "appended": "boolean - true if orders are being appended to existing archive",
+          "new_orders": "integer (only present when appended=true) - count of new orders being appended",
+          "message": "string (optional) - informational message e.g. 'No new orders to append'"
+        }
+      ]
+    },
+    "errors": {
+      "400": "Archive job not ready for append (not EXPORTED) | Appending would exceed limit of N orders | Invalid criteria",
+      "403": "Restaurant mismatch",
+      "500": "Manifest missing or corrupt"
+    }
+  },
+  {
+    "path": "/jobs/archive/{job_id}",
+    "method": "GET",
+    "summary": "Get Archive Job Details",
+    "description": "Retrieves status and details of a specific archive job.",
+    "tags": ["Jobs"],
+    "parameters": [
+      {
+        "name": "job_id",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "UUID of the archive job"
+      }
+    ],
+    "response": {
+      "job_id": "string",
+      "status": "string (PENDING|EXPORTING|EXPORTED|FAILED)",
+      "restaurant_id": "integer",
+      "created_at": "datetime",
+      "manifest_path": "string"
+    },
+    "errors": {
+      "403": "Restaurant mismatch",
+      "404": "Job not found"
+    }
+  },
+  {
+    "path": "/jobs/archive/{job_id}",
+    "method": "DELETE",
+    "summary": "Delete Archive Job",
+    "description": "Deletes an archive job record from the database. Also cleans up associated files in the archive directory and /tmp if they exist.",
+    "tags": ["Jobs"],
+    "parameters": [
+      {
+        "name": "job_id",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "UUID of the archive job to delete"
+      }
+    ],
+    "response": {
+      "deleted": "boolean",
+      "job_id": "string"
+    },
+    "errors": {
+      "404": "Job not found"
+    }
+  },
+  {
+    "path": "/jobs/delete",
+    "method": "POST",
+    "summary": "Create Delete Job",
+    "description": "Initiates a hard deletion job for orders previously archived. Deletes orders from the main database using a stored procedure.",
+    "tags": ["Jobs"],
+    "request_body": {
+      "type": "json",
+      "fields": [
+        {
+          "name": "archive_job_id",
+          "type": "string",
+          "required": true,
+          "description": "ID of the successfully completed archive job"
+        },
+        {
+          "name": "restaurant_id",
+          "type": "integer",
+          "required": true,
+          "description": "ID of the restaurant (must match archive job)"
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "description": "User requesting deletion"
+        },
+        {
+          "name": "order_ids",
+          "type": "array[integer]",
+          "required": false,
+          "description": "Optional: specific order IDs to delete. If not provided, all orders in the archive manifest will be deleted. Order IDs must exist in the archive."
+        }
+      ]
+    },
+    "response": {
+      "delete_job_id": "string",
+      "status": "string (PENDING|READY|DELETING|DELETED|FAILED)"
+    },
+    "errors": {
+      "400": "Archive job not ready (not EXPORTED) | Restaurant ID mismatch | Order IDs not found in archive",
+      "403": "Restaurant mismatch",
+      "404": "Archive job not found",
+      "409": "Archive job already deleted for this manifest",
+      "429": "A deletion job is already in progress for this restaurant",
+      "500": "Manifest missing/corrupt | Deletion failed"
+    }
+  },
+  {
+    "path": "/jobs/debug/last-error",
+    "method": "GET",
+    "summary": "Get Last Export Error",
+    "description": "Returns detailed information about the last failed export job. Only available in development environment.",
+    "tags": ["Jobs", "Debug"],
+    "parameters": [],
+    "response": {
+      "last_export_error": {
+        "error": "string",
+        "traceback": "string",
+        "time": "string"
+      }
+    },
+    "errors": {
+      "404": "Not found (in non-development environments)"
+    }
+  },
+  {
+    "path": "/jobs/debug/export-repro",
+    "method": "GET",
+    "summary": "Debug Export Reproduction",
+    "description": "Tests database connections and pandas read capability for debugging exports. Only available in development environment.",
+    "tags": ["Jobs", "Debug"],
+    "parameters": [],
+    "response": {
+      "status": "string (OK|ERROR)",
+      "select_1": "value",
+      "pandas_read": "object",
+      "url_masked": "string",
+      "error": "string (only on ERROR)",
+      "traceback": "string (only on ERROR)"
+    },
+    "errors": {
+      "404": "Not found (in non-development environments)"
+    }
+  },
+  {
+    "path": "/archive/jobs",
+    "method": "GET",
+    "summary": "List Archive Jobs",
+    "description": "Lists all archive jobs for the authenticated restaurant, optionally filtered by date range.",
+    "tags": ["Archive Viewer"],
+    "parameters": [
+      {
+        "name": "start_day",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Start day filter (YYYY-MM-DD format)"
+      },
+      {
+        "name": "end_day",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "End day filter (YYYY-MM-DD format)"
+      }
+    ],
+    "response": {
+      "jobs": [
+        {
+          "job_id": "string (UUID)",
+          "archive_day": "string (YYYY-MM-DD) or null",
+          "status": "string (PENDING|EXPORTING|EXPORTED|FAILED)",
+          "created_at": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "path": "/archive/{job_id}/manifest",
+    "method": "GET",
+    "summary": "Get Job Manifest",
+    "description": "Retrieves the manifest JSON file for a successfully exported job. Contains order count, checksums, criteria, and file metadata.",
+    "tags": ["Archive Viewer"],
+    "parameters": [
+      {
+        "name": "job_id",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "UUID of the export job"
+      }
+    ],
+    "response": {
+      "job_id": "string",
+      "restaurant_id": "integer",
+      "archive_day": "string (YYYY-MM-DD)",
+      "exported_at": "datetime",
+      "updated_at": "datetime (present after append operations)",
+      "criteria": {
+        "restaurant_id": "integer",
+        "order_ids": "array[integer] - all archived order IDs",
+        "delete_order_ids": "array[integer] or null - orders intended for deletion (optional, may be subset of order_ids)",
+        "start_date": "string",
+        "end_date": "string",
+        "archive_day": "string"
+      },
+      "row_counts": {
+        "orders": "integer",
+        "other_tables": "integer"
+      },
+      "total_checksum": "string (SHA256)",
+      "storage_type": "string (local|s3)",
+      "files": [
+        {
+          "table": "string",
+          "path": "string",
+          "checksum": "string"
+        }
+      ]
+    },
+    "errors": {
+      "400": "Job not ready (not EXPORTED)",
+      "403": "Restaurant mismatch",
+      "404": "Job not found",
+      "500": "Manifest file missing"
+    }
+  },
+  {
+    "path": "/archive/{job_id}/query/{table_name}",
+    "method": "GET",
+    "summary": "Query Archive Table",
+    "description": "Queries the parquet files for a specific table in an archive job using DuckDB. Supports filtering, sorting, and pagination.",
+    "tags": ["Archive Viewer"],
+    "parameters": [
+      {
+        "name": "job_id",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "UUID of the export job"
+      },
+      {
+        "name": "table_name",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "Name of the table to query (e.g., orders, order_items)"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "type": "integer",
+        "default": 50,
+        "max": 1000,
+        "description": "Number of records to return"
+      },
+      {
+        "name": "offset",
+        "in": "query",
+        "type": "integer",
+        "default": 0,
+        "description": "Number of records to skip"
+      },
+      {
+        "name": "start_date",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Filter by created_at >= start_date"
+      },
+      {
+        "name": "end_date",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Filter by created_at <= end_date"
+      },
+      {
+        "name": "sort_by",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Column name to sort by"
+      },
+      {
+        "name": "sort_desc",
+        "in": "query",
+        "type": "boolean",
+        "default": false,
+        "description": "Sort in descending order"
+      }
+    ],
+    "response": {
+      "data": "array[object] - records from the table",
+      "meta": {
+        "limit": "integer",
+        "offset": "integer",
+        "count": "integer - number of records returned",
+        "filters": {
+          "start": "string or null",
+          "end": "string or null"
+        }
+      }
+    },
+    "errors": {
+      "400": "Job not ready | Query failed",
+      "403": "Restaurant mismatch",
+      "404": "Job not found | Table not found in archive"
+    }
+  },
+  {
+    "path": "/archive/by-day/{archive_day}/query/{table_name}",
+    "method": "GET",
+    "summary": "Query Archive Table by Day",
+    "description": "Queries archive data for a specific day. Resolves the single archive job for that day and returns table data.",
+    "tags": ["Archive Viewer"],
+    "parameters": [
+      {
+        "name": "archive_day",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "Archive day in YYYY-MM-DD format"
+      },
+      {
+        "name": "table_name",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "Name of the table to query"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "type": "integer",
+        "default": 50,
+        "max": 1000,
+        "description": "Number of records to return"
+      },
+      {
+        "name": "offset",
+        "in": "query",
+        "type": "integer",
+        "default": 0,
+        "description": "Number of records to skip"
+      },
+      {
+        "name": "start_date",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Filter by created_at >= start_date"
+      },
+      {
+        "name": "end_date",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Filter by created_at <= end_date"
+      },
+      {
+        "name": "sort_by",
+        "in": "query",
+        "type": "string",
+        "required": false,
+        "description": "Column name to sort by"
+      },
+      {
+        "name": "sort_desc",
+        "in": "query",
+        "type": "boolean",
+        "default": false,
+        "description": "Sort in descending order"
+      }
+    ],
+    "response": {
+      "data": "array[object] - records from the table",
+      "meta": {
+        "limit": "integer",
+        "offset": "integer",
+        "count": "integer",
+        "filters": {
+          "start": "string or null",
+          "end": "string or null"
+        }
+      }
+    },
+    "errors": {
+      "400": "Invalid day format | Job not ready",
+      "404": "Archive job for day not found"
+    }
+  }
+]

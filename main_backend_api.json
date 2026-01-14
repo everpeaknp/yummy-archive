@@ -1,2342 +1,1150 @@
 {
   "info": {
-    "name": "Yummy Restaurant Management API - Complete Test Suite",
-    "description": "Complete API test collection for all endpoints in the Yummy Restaurant Management System",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "version": "1.0.0"
-  },
-  "auth": {
-    "type": "bearer",
-    "bearer": [
-      {
-        "key": "token",
-        "value": "{{access_token}}",
-        "type": "string"
-      }
-    ]
+    "name": "Yummy Backend API Collection",
+    "description": "Complete API collection for Yummy Restaurant Management Backend",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
-      "key": "base_url",
-      "value": "https://your-api-domain.com",
-      "type": "string"
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8001",
+      "description": "Base URL for the API"
     },
     {
-      "key": "access_token",
+      "key": "accessToken",
       "value": "",
-      "type": "string"
+      "description": "JWT Access Token (set after login)"
     },
     {
-      "key": "refresh_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "restaurant_id",
+      "key": "restaurantId",
       "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "user_id",
-      "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "order_id",
-      "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "table_id",
-      "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "menu_id",
-      "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "customer_id",
-      "value": "1",
-      "type": "string"
-    },
-    {
-      "key": "kot_id",
-      "value": "1",
-      "type": "string"
+      "description": "Default restaurant ID"
     }
   ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}" }]
+  },
   "item": [
     {
-      "name": "01. Authentication",
+      "name": "🔐 Authentication",
       "item": [
         {
-          "name": "Admin Register",
+          "name": "Login",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "url": "{{baseUrl}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Admin User\",\n  \"email\": \"admin@yummy.com\",\n  \"password\": \"admin123456\",\n  \"confirm_password\": \"admin123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/users/admin/register",
-              "host": ["{{base_url}}"],
-              "path": ["users", "admin", "register"]
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "username", "value": "admin@example.com" },
+                { "key": "password", "value": "password123" }
+              ]
             }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\"refresh_token\": \"<token>\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/forgot-password",
+            "body": { "mode": "raw", "raw": "{\"email\": \"user@example.com\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Verify Reset OTP",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/verify-reset-otp",
+            "body": { "mode": "raw", "raw": "{\"email\": \"user@example.com\", \"otp\": \"123456\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/reset-password",
+            "body": { "mode": "raw", "raw": "{\"email\": \"user@example.com\", \"otp\": \"123456\", \"new_password\": \"newpass\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Firebase Google Login",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/firebase/google",
+            "body": { "mode": "raw", "raw": "{\"idToken\": \"<firebase_id_token>\"}", "options": { "raw": { "language": "json" } } }
+          }
+        }
+      ]
+    },
+    {
+      "name": "👤 Users",
+      "item": [
+        {
+          "name": "Admin Register Request",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/users/admin/register",
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@example.com\", \"name\": \"Admin User\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Admin Register Verify",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Admin User\",\n  \"email\": \"admin@yummy.com\",\n  \"password\": \"admin123456\",\n  \"confirm_password\": \"admin123456\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/users/admin/register/verify",
-              "host": ["{{base_url}}"],
-              "path": ["users", "admin", "register", "verify"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('access_token', response.data.access_token);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Login",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/x-www-form-urlencoded"
-              }
-            ],
-            "body": {
-              "mode": "urlencoded",
-              "urlencoded": [
-                {
-                  "key": "username",
-                  "value": "admin@yummy.com"
-                },
-                {
-                  "key": "password",
-                  "value": "admin123456"
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/login",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "login"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('access_token', response.data.access_token);",
-                  "    pm.collectionVariables.set('refresh_token', response.data.refresh_token);",
-                  "    pm.collectionVariables.set('user_id', response.data.user_id);",
-                  "    if (response.data.restaurant_id) {",
-                  "        pm.collectionVariables.set('restaurant_id', response.data.restaurant_id);",
-                  "    }",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Refresh Token",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/refresh",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "refresh"]
-            }
+            "url": "{{baseUrl}}/users/admin/register/verify",
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@example.com\", \"otp\": \"123456\", \"password\": \"password123\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Forgot Password",
+          "name": "Admin Register Resend",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@yummy.com\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/forgot-password",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "forgot-password"]
-            }
+            "url": "{{baseUrl}}/users/admin/register/resend",
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@example.com\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Logout",
+          "name": "Create User",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/auth/logout",
-              "host": ["{{base_url}}"],
-              "path": ["auth", "logout"]
-            }
+            "url": "{{baseUrl}}/users/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"waiter@example.com\", \"name\": \"Waiter\", \"password\": \"pass123\", \"role\": \"waiter\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get All Users",
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/all" }
+        },
+        {
+          "name": "Get User by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/1" }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/users/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Updated Name\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/users/1" }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/users/change-password",
+            "body": { "mode": "raw", "raw": "{\"current_password\": \"oldpass\", \"new_password\": \"newpass\"}", "options": { "raw": { "language": "json" } } }
           }
         }
       ]
     },
     {
-      "name": "02. Restaurant Management",
+      "name": "🏪 Restaurant",
       "item": [
+        {
+          "name": "Get Restaurant by User",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/by-user" }
+        },
         {
           "name": "Create Restaurant",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Yummy Restaurant\",\n  \"address\": \"123 Main Street, Kathmandu\",\n  \"phone\": \"+977-1-4567890\",\n  \"description\": \"Best restaurant in town\",\n  \"kot_enabled\": true,\n  \"timezone\": \"Asia/Kathmandu\",\n  \"payment_qrs\": [\n    {\n      \"name\": \"eSewa\",\n      \"payload\": \"esewa://pay?amount={amount}\"\n    },\n    {\n      \"name\": \"Khalti\",\n      \"payload\": \"khalti://pay?amount={amount}\"\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurants/",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", ""]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('restaurant_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get Restaurant by User",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurants/by-user",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "by-user"]
-            }
+            "url": "{{baseUrl}}/restaurants/",
+            "body": { "mode": "raw", "raw": "{\"name\": \"My Restaurant\", \"address\": \"123 Main St\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Restaurant by ID",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurants/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "{{restaurant_id}}"]
-            }
-          }
+          "name": "Get Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/{{restaurantId}}" }
         },
         {
           "name": "Update Restaurant",
           "request": {
             "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Yummy Restaurant\",\n  \"address\": \"456 New Street, Kathmandu\",\n  \"phone\": \"+977-1-9876543\",\n  \"description\": \"Updated description\",\n  \"kot_enabled\": true,\n  \"timezone\": \"Asia/Kathmandu\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurants/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "{{restaurant_id}}"]
-            }
+            "url": "{{baseUrl}}/restaurants/{{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Updated Restaurant\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Update Fonepay Config",
+          "name": "Update FonePay Config",
           "request": {
             "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fonepay_enabled\": true,\n  \"fonepay_pid\": \"MERCHANT123\",\n  \"fonepay_secret\": \"secret_key_here\",\n  \"fonepay_username\": \"fonepay_user\",\n  \"fonepay_password\": \"fonepay_pass\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurants/{{restaurant_id}}/fonepay-config",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "{{restaurant_id}}", "fonepay-config"]
-            }
-          }
-        }
-      ]
-    }
-    },
-    {
-      "name": "03. Table Management",
-      "item": [
-        {
-          "name": "Create Table Type",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Standard\",\n  \"description\": \"Standard dining table\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurant-table-types/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurant-table-types", "{{restaurant_id}}"]
-            }
+            "url": "{{baseUrl}}/restaurants/{{restaurantId}}/fonepay-config",
+            "body": { "mode": "raw", "raw": "{\"fonepay_merchant_code\": \"ABC123\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Table Types",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurant-table-types/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurant-table-types", "{{restaurant_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Create Table",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"T001\",\n  \"capacity\": 4,\n  \"table_type_id\": 1,\n  \"status\": \"free\",\n  \"pos_x\": 100.0,\n  \"pos_y\": 200.0\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "{{restaurant_id}}"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('table_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get All Tables",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/all/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "all", "{{restaurant_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Get Table Summary",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/summary/{{restaurant_id}}?fields=id,table_name,capacity,status",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "summary", "{{restaurant_id}}"],
-              "query": [
-                {
-                  "key": "fields",
-                  "value": "id,table_name,capacity,status"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Single Table",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/single/{{table_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "single", "{{table_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Table",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"T001-Updated\",\n  \"capacity\": 6,\n  \"table_type_id\": 1,\n  \"status\": \"occupied\",\n  \"current_guests\": 4,\n  \"pos_x\": 150.0,\n  \"pos_y\": 250.0\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/{{table_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "{{table_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Free Table",
-          "request": {
-            "method": "POST",
-            "url": {
-              "raw": "{{base_url}}/restaurants/tables/{{table_id}}/free",
-              "host": ["{{base_url}}"],
-              "path": ["restaurants", "tables", "{{table_id}}", "free"]
-            }
-          }
+          "name": "Delete Restaurant",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/restaurants/{{restaurantId}}" }
         }
       ]
     },
     {
-      "name": "04. Menu Management",
-      "item": [
-        {
-          "name": "Create Item Category",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Burgers\",\n  \"description\": \"All burger items\",\n  \"type\": \"food\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/item-categories/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["item-categories", "{{restaurant_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Get Item Categories",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/item-categories/restaurant/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["item-categories", "restaurant", "{{restaurant_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Create Menu Item",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Chicken Burger\",\n  \"price\": 15.99,\n  \"item_category_id\": 1,\n  \"description\": \"Delicious chicken burger with fries\",\n  \"modifier_group_ids\": [1, 2],\n  \"is_price_tax_inclusive\": false,\n  \"image\": \"https://example.com/burger.jpg\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/menus/{{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "{{restaurant_id}}"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('menu_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get Menu Items",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/menus/restaurant/{{restaurant_id}}?category_id=1&is_available=true&search=burger&include_modifiers=true&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "restaurant", "{{restaurant_id}}"],
-              "query": [
-                {
-                  "key": "category_id",
-                  "value": "1"
-                },
-                {
-                  "key": "is_available",
-                  "value": "true"
-                },
-                {
-                  "key": "search",
-                  "value": "burger"
-                },
-                {
-                  "key": "include_modifiers",
-                  "value": "true"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Menu Summary",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/menus/restaurant/{{restaurant_id}}/summary",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "restaurant", "{{restaurant_id}}", "summary"]
-            }
-          }
-        },
-        {
-          "name": "Get Menu Grouped",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/menus/restaurant/{{restaurant_id}}/grouped",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "restaurant", "{{restaurant_id}}", "grouped"]
-            }
-          }
-        },
-        {
-          "name": "Get Menu Item",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/menus/item/{{menu_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "item", "{{menu_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Update Menu Item",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Chicken Burger\",\n  \"price\": 17.99,\n  \"item_category_id\": 1,\n  \"description\": \"Updated delicious chicken burger\",\n  \"modifier_group_ids\": [1],\n  \"is_price_tax_inclusive\": true,\n  \"image\": \"https://example.com/new-burger.jpg\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/menus/{{menu_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["menus", "{{menu_id}}"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "05. Order Management",
+      "name": "📋 Orders",
       "item": [
         {
           "name": "Create Order",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"channel\": \"table\",\n  \"table_id\": {{table_id}},\n  \"table_ids\": [{{table_id}}],\n  \"number_of_guests\": 2,\n  \"customer_name\": \"John Doe\",\n  \"customer_phone\": \"+977-9876543210\",\n  \"notes\": \"Special instructions\",\n  \"items\": [\n    {\n      \"menu_item_id\": {{menu_id}},\n      \"qty\": 2,\n      \"notes\": \"No onions\",\n      \"modifiers\": [\n        {\n          \"modifier_id\": 1,\n          \"modifier_name_snapshot\": \"Extra Cheese\",\n          \"price_adjustment_snapshot\": 2.50\n        }\n      ]\n    }\n  ],\n  \"payments\": [\n    {\n      \"method\": \"cash\",\n      \"amount\": 35.98,\n      \"reference\": \"CASH001\",\n      \"status\": \"success\"\n    }\n  ],\n  \"discount_code\": \"SAVE10\",\n  \"manual_discount_amount\": 5.00,\n  \"duration_minutes\": 120\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/",
-              "host": ["{{base_url}}"],
-              "path": ["orders", ""]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('order_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get Orders",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/?restaurant_id={{restaurant_id}}&status=pending&status=running&channel=table&skip=0&limit=50&include=payments,items",
-              "host": ["{{base_url}}"],
-              "path": ["orders", ""],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "status",
-                  "value": "pending"
-                },
-                {
-                  "key": "status",
-                  "value": "running"
-                },
-                {
-                  "key": "channel",
-                  "value": "table"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "key": "include",
-                  "value": "payments,items"
-                }
-              ]
-            }
+            "url": "{{baseUrl}}/orders/",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"table_id\": 1, \"channel\": \"dine_in\", \"items\": [{\"menu_item_id\": 1, \"quantity\": 2}]}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Order Summary",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/summary?restaurant_id={{restaurant_id}}&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "summary"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
-          }
+          "name": "List Orders",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}" }
         },
         {
-          "name": "Get Active Orders",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/active?restaurant_id={{restaurant_id}}&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "active"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
-          }
+          "name": "List Orders Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}/summary" }
+        },
+        {
+          "name": "List Active Orders",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}/active" }
         },
         {
           "name": "Get Orders by Table",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/table/{{table_id}}?skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "table", "{{table_id}}"],
-              "query": [
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/table/1" }
         },
         {
-          "name": "Get Order",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}"]
-            }
-          }
+          "name": "Get Order by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/1" }
         },
         {
           "name": "Get Order Full Context",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/full",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "full"]
-            }
-          }
-        },
-        {
-          "name": "Get Order Bill",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/bill",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "bill"]
-            }
-          }
-        },
-        {
-          "name": "Get Order Events",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/events",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "events"]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/1/full" }
         },
         {
           "name": "Update Order Status",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"preparing\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/status",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "status"]
-            }
+            "url": "{{baseUrl}}/orders/1/status",
+            "body": { "mode": "raw", "raw": "{\"status\": \"preparing\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Update Order",
           "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"notes\": \"Updated notes\",\n  \"customer_name\": \"Jane Doe\",\n  \"customer_phone\": \"+977-1234567890\",\n  \"number_of_guests\": 4\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}"]
-            }
+            "method": "PUT",
+            "url": "{{baseUrl}}/orders/1",
+            "body": { "mode": "raw", "raw": "{\"notes\": \"Updated notes\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Add Items to Order",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"items\": [\n    {\n      \"menu_item_id\": {{menu_id}},\n      \"qty\": 1,\n      \"notes\": \"Extra spicy\"\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/items",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "items"]
-            }
+            "url": "{{baseUrl}}/orders/1/items",
+            "body": { "mode": "raw", "raw": "{\"items\": [{\"menu_item_id\": 2, \"quantity\": 1}]}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Add Payment to Order",
+          "name": "Bulk Add Items",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"payment\": {\n    \"method\": \"card\",\n    \"amount\": 20.00,\n    \"reference\": \"CARD001\",\n    \"status\": \"success\"\n  }\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/payments",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "payments"]
-            }
+            "url": "{{baseUrl}}/orders/1/items/bulk",
+            "body": { "mode": "raw", "raw": "{\"items\": [{\"menu_item_id\": 1, \"quantity\": 2}]}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Update Item Quantity",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/orders/1/items/1",
+            "body": { "mode": "raw", "raw": "{\"quantity\": 3}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Remove Item",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/orders/1/items/1" }
+        },
+        {
+          "name": "Add Payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/1/payments",
+            "body": { "mode": "raw", "raw": "{\"amount\": 500, \"method\": \"cash\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Add Refund",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/1/refunds",
+            "body": { "mode": "raw", "raw": "{\"amount\": 100, \"reason\": \"Item returned\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Cancel Order",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reason\": \"Customer requested cancellation\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/orders/{{order_id}}/cancel",
-              "host": ["{{base_url}}"],
-              "path": ["orders", "{{order_id}}", "cancel"]
-            }
+            "url": "{{baseUrl}}/orders/1/cancel",
+            "body": { "mode": "raw", "raw": "{\"reason\": \"Customer request\"}", "options": { "raw": { "language": "json" } } }
           }
         }
       ]
-    }
     },
     {
-      "name": "06. KOT Management",
+      "name": "🍽️ Menu",
+      "item": [
+        {
+          "name": "Create Menu Item",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/menus/{{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Burger\", \"price\": 250, \"item_category_id\": 1}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Menu Item",
+          "request": { "method": "GET", "url": "{{baseUrl}}/menus/item/1" }
+        },
+        {
+          "name": "Update Menu Item",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/menus/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Updated Burger\", \"price\": 300}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Menu Item",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/menus/1" }
+        },
+        {
+          "name": "Get Menus by Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/menus/restaurant/{{restaurantId}}" }
+        },
+        {
+          "name": "Get Menus Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/menus/restaurant/{{restaurantId}}/summary" }
+        },
+        {
+          "name": "Get Grouped Menus",
+          "request": { "method": "GET", "url": "{{baseUrl}}/menus/restaurant/{{restaurantId}}/grouped" }
+        }
+      ]
+    },
+    {
+      "name": "📂 Item Categories",
+      "item": [
+        {
+          "name": "Create Item Category",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/item-categories/{{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Appetizers\", \"type\": \"kitchen\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Item Categories",
+          "request": { "method": "GET", "url": "{{baseUrl}}/item-categories/restaurant/{{restaurantId}}" }
+        },
+        {
+          "name": "Get Item Category",
+          "request": { "method": "GET", "url": "{{baseUrl}}/item-categories/1" }
+        },
+        {
+          "name": "Update Item Category",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/item-categories/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Starters\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Item Category",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/item-categories/1" }
+        }
+      ]
+    },
+    {
+      "name": "🎫 KOT (Kitchen Order Tickets)",
       "item": [
         {
           "name": "Create Initial KOT",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"table_id\": {{table_id}},\n  \"items\": [\n    {\n      \"item_id\": 1,\n      \"item_name\": \"Chicken Burger\",\n      \"qty\": 2\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/kots/orders/{{order_id}}/initial",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "orders", "{{order_id}}", "initial"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('kot_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
+            "url": "{{baseUrl}}/kots/orders/1/initial",
+            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } }
+          }
         },
         {
-          "name": "Update KOT",
+          "name": "Apply KOT Update",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"items\": [\n    {\n      \"item_id\": 2,\n      \"item_name\": \"French Fries\",\n      \"qty\": 1\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/kots/orders/{{order_id}}/update",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "orders", "{{order_id}}", "update"]
-            }
+            "url": "{{baseUrl}}/kots/orders/1/update",
+            "body": { "mode": "raw", "raw": "{\"items\": []}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Update KOT Status",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"PREPARING\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/kots/{{kot_id}}/status",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "{{kot_id}}", "status"]
-            }
+            "url": "{{baseUrl}}/kots/1/status",
+            "body": { "mode": "raw", "raw": "{\"status\": \"preparing\"}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Reject KOT",
+          "request": { "method": "POST", "url": "{{baseUrl}}/kots/1/reject" }
         },
         {
           "name": "Update KOT Item Fulfillment",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"ready_delta\": 1,\n  \"served_delta\": 0\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/kots/{{kot_id}}/items/1/fulfillment",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "{{kot_id}}", "items", "1", "fulfillment"]
-            }
+            "url": "{{baseUrl}}/kots/1/items/1/fulfillment",
+            "body": { "mode": "raw", "raw": "{\"delta\": 1}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Mark All KOT Items",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"target\": \"READY\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/kots/{{kot_id}}/fulfillment/mark-all",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "{{kot_id}}", "fulfillment", "mark-all"]
-            }
-          }
-        },
-        {
-          "name": "Search KOTs",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/kots/search?restaurant_id={{restaurant_id}}&status=PENDING&station=kitchen&skip=0&limit=100",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "search"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "status",
-                  "value": "PENDING"
-                },
-                {
-                  "key": "station",
-                  "value": "kitchen"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "100"
-                }
-              ]
-            }
+            "url": "{{baseUrl}}/kots/1/mark-all",
+            "body": { "mode": "raw", "raw": "{\"action\": \"complete\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Get KOT",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/kots/{{kot_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "{{kot_id}}"]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/1" }
         },
         {
-          "name": "Get KOTs for Order",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/kots/orders/{{order_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "orders", "{{order_id}}"]
-            }
-          }
+          "name": "List KOTs for Order",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/orders/1" }
         },
         {
-          "name": "Get KOTs for Restaurant",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/kots/restaurants/{{restaurant_id}}?status=PENDING&station=kitchen&skip=0&limit=100",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "restaurants", "{{restaurant_id}}"],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "PENDING"
-                },
-                {
-                  "key": "station",
-                  "value": "kitchen"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "100"
-                }
-              ]
-            }
-          }
+          "name": "List KOTs for Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/restaurant/{{restaurantId}}" }
         },
         {
-          "name": "Reject KOT",
-          "request": {
-            "method": "POST",
-            "url": {
-              "raw": "{{base_url}}/kots/{{kot_id}}/reject",
-              "host": ["{{base_url}}"],
-              "path": ["kots", "{{kot_id}}", "reject"]
-            }
-          }
+          "name": "List KOTs for Table",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/table/1" }
+        },
+        {
+          "name": "Search KOTs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/restaurant/{{restaurantId}}/search" }
+        },
+        {
+          "name": "Get KOT Activity",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kots/1/activity" }
         }
       ]
     },
     {
-      "name": "07. Inventory Management",
+      "name": "📦 Inventory",
       "item": [
         {
           "name": "Create Inventory Item",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"name\": \"Chicken Breast\",\n  \"unit\": \"kg\",\n  \"current_stock\": 50.0,\n  \"min_stock_level\": 10.0,\n  \"opening_stock_total_cost\": 425.00,\n  \"supplier_id\": 1,\n  \"is_active\": true,\n  \"opening_stock_payment_status\": \"paid\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/inventory/items",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items"]
-            }
+            "url": "{{baseUrl}}/inventory/",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"Chicken\", \"unit\": \"kg\", \"quantity\": 50, \"reorder_level\": 10}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Inventory Items",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/inventory/items?restaurant_id={{restaurant_id}}&is_active=true&low_stock_only=false&include=supplier&skip=0&limit=100",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "is_active",
-                  "value": "true"
-                },
-                {
-                  "key": "low_stock_only",
-                  "value": "false"
-                },
-                {
-                  "key": "include",
-                  "value": "supplier"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "100"
-                }
-              ]
-            }
-          }
+          "name": "List Inventory Items",
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/restaurant/{{restaurantId}}" }
         },
         {
           "name": "Get Low Stock Items",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/inventory/items/low-stock?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items", "low-stock"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/restaurant/{{restaurantId}}/low-stock" }
         },
         {
           "name": "Get Inventory Item",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/inventory/items/1?include=supplier",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items", "1"],
-              "query": [
-                {
-                  "key": "include",
-                  "value": "supplier"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/1" }
         },
         {
           "name": "Update Inventory Item",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Chicken Breast\",\n  \"current_stock\": 45.0,\n  \"min_stock_level\": 15.0,\n  \"is_active\": true\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/inventory/items/1",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items", "1"]
-            }
+            "url": "{{baseUrl}}/inventory/1",
+            "body": { "mode": "raw", "raw": "{\"quantity\": 75}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Delete Inventory Item",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/inventory/1" }
         },
         {
           "name": "Adjust Inventory",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"adjustment_type\": \"add\",\n  \"quantity\": 25.0,\n  \"reason\": \"New delivery from supplier\",\n  \"cost\": 212.50,\n  \"payment_status\": \"pending\",\n  \"supplier_id\": 1\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/inventory/items/1/adjust",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items", "1", "adjust"]
-            }
+            "url": "{{baseUrl}}/inventory/1/adjust",
+            "body": { "mode": "raw", "raw": "{\"quantity\": 10, \"adjustment_type\": \"purchase\", \"notes\": \"Restocking\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Get Adjustment History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/1/adjustments" }
+        },
+        {
+          "name": "Get Ledger",
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/1/ledger" }
+        },
+        {
+          "name": "Get Adjustment by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/adjustments/1" }
+        },
+        {
+          "name": "Mark Adjustment Paid",
           "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/inventory/items/1/adjustments?skip=0&limit=100&include=item,payment_status&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "items", "1", "adjustments"],
-              "query": [
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "100"
-                },
-                {
-                  "key": "include",
-                  "value": "item,payment_status"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
+            "method": "POST",
+            "url": "{{baseUrl}}/inventory/adjustments/1/paid",
+            "body": { "mode": "raw", "raw": "{\"payment_method\": \"cash\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Link Menu to Inventory",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"menu_item_id\": {{menu_id}},\n  \"inventory_item_id\": 1,\n  \"quantity_required\": 0.25\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/inventory/menu-link",
-              "host": ["{{base_url}}"],
-              "path": ["inventory", "menu-link"]
-            }
+            "url": "{{baseUrl}}/inventory/menu-link",
+            "body": { "mode": "raw", "raw": "{\"menu_item_id\": 1, \"inventory_item_id\": 1, \"quantity_per_unit\": 0.5}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Remove Menu Inventory Link",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/inventory/menu-link/1" }
+        },
+        {
+          "name": "Get Inventory for Menu Item",
+          "request": { "method": "GET", "url": "{{baseUrl}}/inventory/menu/1" }
         }
       ]
     },
     {
-      "name": "08. Financial Management",
+      "name": "👥 Customers",
       "item": [
         {
-          "name": "Get Expense Categories",
+          "name": "Create Customer",
           "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/expenses/categories?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["expenses", "categories"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
+            "method": "POST",
+            "url": "{{baseUrl}}/customers",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"John Doe\", \"phone\": \"+9779800000000\"}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Get Customer",
+          "request": { "method": "GET", "url": "{{baseUrl}}/customers/1" }
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/customers/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Jane Doe\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Customer",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/customers/1" }
+        },
+        {
+          "name": "List Customers",
+          "request": { "method": "GET", "url": "{{baseUrl}}/customers?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Customer by Phone",
+          "request": { "method": "GET", "url": "{{baseUrl}}/customers/phone/+9779800000000?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Redeem Loyalty Points",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/customers/1/loyalty/redeem",
+            "body": { "mode": "raw", "raw": "{\"points\": 100}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Repay Credit",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/customers/1/credit/repay",
+            "body": { "mode": "raw", "raw": "{\"amount\": 500, \"method\": \"cash\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Credit Payment History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/customers/1/credit/history" }
+        }
+      ]
+    },
+    {
+      "name": "📅 Reservations",
+      "item": [
+        {
+          "name": "Create Reservation",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/reservations",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"customer_id\": 1, \"table_id\": 1, \"party_size\": 4, \"reservation_time\": \"2026-01-15T19:00:00\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Reservation",
+          "request": { "method": "GET", "url": "{{baseUrl}}/reservations/1" }
+        },
+        {
+          "name": "Update Reservation",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/reservations/1",
+            "body": { "mode": "raw", "raw": "{\"party_size\": 6}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Confirm Reservation",
+          "request": { "method": "POST", "url": "{{baseUrl}}/reservations/1/confirm" }
+        },
+        {
+          "name": "Seat Reservation",
+          "request": { "method": "POST", "url": "{{baseUrl}}/reservations/1/seat" }
+        },
+        {
+          "name": "Complete Reservation",
+          "request": { "method": "POST", "url": "{{baseUrl}}/reservations/1/complete" }
+        },
+        {
+          "name": "Cancel Reservation",
+          "request": { "method": "POST", "url": "{{baseUrl}}/reservations/1/cancel?reason=Customer%20request" }
+        },
+        {
+          "name": "Mark No Show",
+          "request": { "method": "POST", "url": "{{baseUrl}}/reservations/1/no-show" }
+        },
+        {
+          "name": "List Reservations",
+          "request": { "method": "GET", "url": "{{baseUrl}}/reservations?restaurant_id={{restaurantId}}" }
+        }
+      ]
+    },
+    {
+      "name": "💸 Expenses",
+      "item": [
+        {
+          "name": "List Categories",
+          "request": { "method": "GET", "url": "{{baseUrl}}/expenses/categories/{{restaurantId}}" }
+        },
+        {
+          "name": "List Candidates",
+          "request": { "method": "GET", "url": "{{baseUrl}}/expenses/candidates/{{restaurantId}}" }
+        },
+        {
+          "name": "Approve Candidate",
+          "request": { "method": "POST", "url": "{{baseUrl}}/expenses/candidates/1/approve" }
+        },
+        {
+          "name": "Reject Candidate",
+          "request": { "method": "POST", "url": "{{baseUrl}}/expenses/candidates/1/reject" }
+        },
+        {
+          "name": "Expense Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/expenses/summary/{{restaurantId}}" }
+        },
+        {
+          "name": "List Expenses",
+          "request": { "method": "GET", "url": "{{baseUrl}}/expenses/{{restaurantId}}" }
         },
         {
           "name": "Create Expense",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"category_id\": 1,\n  \"amount\": 150.00,\n  \"description\": \"Office supplies purchase\",\n  \"vendor\": \"Supplier ABC\",\n  \"payment_method\": \"cash\",\n  \"paid_on\": \"2024-01-15\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/expenses/",
-              "host": ["{{base_url}}"],
-              "path": ["expenses", ""]
-            }
+            "url": "{{baseUrl}}/expenses/",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"category_id\": 1, \"amount\": 500, \"description\": \"Office supplies\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Expenses",
+          "name": "Get Expense",
+          "request": { "method": "GET", "url": "{{baseUrl}}/expenses/1" }
+        },
+        {
+          "name": "Update Expense",
           "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/expenses/?restaurant_id={{restaurant_id}}&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["expenses", ""],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
+            "method": "PATCH",
+            "url": "{{baseUrl}}/expenses/1",
+            "body": { "mode": "raw", "raw": "{\"amount\": 600}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Expense Summary",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/expenses/summary/total?restaurant_id={{restaurant_id}}&filter=monthly&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["expenses", "summary", "total"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "filter",
-                  "value": "monthly"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Delete Expense",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/expenses/1" }
+        }
+      ]
+    },
+    {
+      "name": "💰 Incomes",
+      "item": [
+        {
+          "name": "Income Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/incomes/summary?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Income Summary",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/incomes/summary?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["incomes", "summary"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Income by Source",
+          "request": { "method": "GET", "url": "{{baseUrl}}/incomes/by-source?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Income by Source",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/incomes/by-source?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["incomes", "by-source"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Income by Payment Method",
+          "request": { "method": "GET", "url": "{{baseUrl}}/incomes/by-payment-method?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Income by Payment Method",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/incomes/by-payment-method?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["incomes", "by-payment-method"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Recent Income",
+          "request": { "method": "GET", "url": "{{baseUrl}}/incomes/recent?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "Create Manual Income",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"amount\": 500.00,\n  \"payment_method\": \"card\",\n  \"description\": \"Corporate catering event\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/incomes/manual?timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["incomes", "manual"],
-              "query": [
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
+            "url": "{{baseUrl}}/incomes/manual",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"amount\": 1000, \"source\": \"tips\", \"description\": \"Tips from customers\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Income Dashboard",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/incomes/dashboard?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["incomes", "dashboard"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Sales Report",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/sales/?restaurant_id={{restaurant_id}}&filter=monthly",
-              "host": ["{{base_url}}"],
-              "path": ["sales", ""],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "filter",
-                  "value": "monthly"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Sales Summary Report",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/sales/report?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["sales", "report"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
-          }
+          "name": "Income Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/incomes/dashboard?restaurant_id={{restaurantId}}" }
         }
       ]
-    }
     },
     {
-      "name": "09. Analytics & Reporting",
+      "name": "📊 Analytics",
       "item": [
         {
-          "name": "Get Analytics Dashboard",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/dashboard?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "dashboard"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Analytics Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/dashboard?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Analytics Overview",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/overview?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "overview"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Analytics Overview",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/overview?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Analytics Trends",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/trends?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "trends"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Analytics Trends",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/trends?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Analytics Breakdown",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/breakdown?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "breakdown"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Analytics Breakdown",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/breakdown?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Analytics Comparison",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/compare?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "compare"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Analytics Comparison",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/comparison?restaurant_id={{restaurantId}}" }
         },
         {
-          "name": "Get Menu Details Analytics",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/analytics/menu/details?restaurant_id={{restaurant_id}}&date_from=2024-01-01&date_to=2024-01-31&page=1&page_size=20&sort_by=revenue&sort_dir=desc",
-              "host": ["{{base_url}}"],
-              "path": ["analytics", "menu", "details"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "date_from",
-                  "value": "2024-01-01"
-                },
-                {
-                  "key": "date_to",
-                  "value": "2024-01-31"
-                },
-                {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "page_size",
-                  "value": "20"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "revenue"
-                },
-                {
-                  "key": "sort_dir",
-                  "value": "desc"
-                }
-              ]
-            }
-          }
+          "name": "Menu Details",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/menu-details?restaurant_id={{restaurantId}}&date_from=2026-01-01&date_to=2026-01-31" }
         },
         {
-          "name": "Get Admin Dashboard",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/admin/dashboard/?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["admin", "dashboard", ""],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
-          }
+          "name": "Staff Details",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/staff-details?restaurant_id={{restaurantId}}&date_from=2026-01-01&date_to=2026-01-31" }
         },
         {
-          "name": "Get Admin Dashboard V2",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/admin/dashboard/v2?restaurant_id={{restaurant_id}}&timezone=Asia/Kathmandu",
-              "host": ["{{base_url}}"],
-              "path": ["admin", "dashboard", "v2"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "timezone",
-                  "value": "Asia/Kathmandu"
-                }
-              ]
-            }
-          }
+          "name": "Kitchen Details",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/kitchen-details?restaurant_id={{restaurantId}}&date_from=2026-01-01&date_to=2026-01-31" }
+        },
+        {
+          "name": "Inventory Details",
+          "request": { "method": "GET", "url": "{{baseUrl}}/analytics/inventory-details?restaurant_id={{restaurantId}}&date_from=2026-01-01&date_to=2026-01-31" }
         }
       ]
     },
     {
-      "name": "10. Day Close Operations",
+      "name": "📆 Day Close",
       "item": [
         {
           "name": "Get Current Day Close",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/day-closes/current?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes", "current"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/current?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "List Day Closes",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/day-closes?restaurant_id={{restaurant_id}}&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "Generate Snapshot Preview",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/day-closes/generate-snapshot?restaurant_id={{restaurant_id}}&business_date=2024-01-15",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes", "generate-snapshot"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "business_date",
-                  "value": "2024-01-15"
-                }
-              ]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/preview?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
         },
         {
-          "name": "Validate Day Close",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/day-closes/validate-close?restaurant_id={{restaurant_id}}&business_date=2024-01-15",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes", "validate-close"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "business_date",
-                  "value": "2024-01-15"
-                }
-              ]
-            }
-          }
+          "name": "Validate Can Close",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/validate?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
         },
         {
           "name": "Initiate Day Close",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"business_date\": \"2024-01-15\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/day-closes/initiate",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes", "initiate"]
-            }
+            "url": "{{baseUrl}}/day-closes/initiate",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"business_date\": \"2026-01-13\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
           "name": "Confirm Day Close",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"actual_cash\": 850.00,\n  \"confirmation_notes\": \"Cash count verified, all good\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/day-closes/1/confirm",
-              "host": ["{{base_url}}"],
-              "path": ["day-closes", "1", "confirm"]
-            }
+            "url": "{{baseUrl}}/day-closes/1/confirm",
+            "body": { "mode": "raw", "raw": "{\"actual_cash\": 5000}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Weekly Close Preview",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/period-closes/weekly/preview?restaurant_id={{restaurant_id}}&year=2024&week_number=2",
-              "host": ["{{base_url}}"],
-              "path": ["period-closes", "weekly", "preview"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "year",
-                  "value": "2024"
-                },
-                {
-                  "key": "week_number",
-                  "value": "2"
-                }
-              ]
-            }
-          }
+          "name": "Cancel Day Close",
+          "request": { "method": "POST", "url": "{{baseUrl}}/day-closes/1/cancel" }
         },
         {
-          "name": "Confirm Weekly Close",
+          "name": "Reopen Day Close",
           "request": {
             "method": "POST",
-            "url": {
-              "raw": "{{base_url}}/period-closes/weekly/confirm?restaurant_id={{restaurant_id}}&year=2024&week_number=2",
-              "host": ["{{base_url}}"],
-              "path": ["period-closes", "weekly", "confirm"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "year",
-                  "value": "2024"
-                },
-                {
-                  "key": "week_number",
-                  "value": "2"
-                }
-              ]
-            }
+            "url": "{{baseUrl}}/day-closes/1/reopen",
+            "body": { "mode": "raw", "raw": "{\"reason\": \"Correction needed\"}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Get Day Close",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/1" }
+        },
+        {
+          "name": "Get Day Close Snapshot",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/1/snapshot" }
+        },
+        {
+          "name": "Get Audit Log",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/1/audit" }
         }
       ]
     },
     {
-      "name": "11. Customer Management",
+      "name": "🔔 Notifications",
       "item": [
         {
-          "name": "Create Customer",
+          "name": "List Notifications",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Unread Count",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/unread-count?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Mark Notifications Read",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"name\": \"John Doe\",\n  \"phone\": \"+977-9876543210\",\n  \"email\": \"john@example.com\",\n  \"address\": \"123 Main St, Kathmandu\",\n  \"date_of_birth\": \"1990-01-15T00:00:00Z\",\n  \"anniversary\": \"2020-06-20T00:00:00Z\",\n  \"dietary_preferences\": \"Vegetarian, No nuts\",\n  \"favorite_items\": \"[1, 5, 8]\",\n  \"notes\": \"Regular customer, prefers window seating\",\n  \"is_active\": true,\n  \"is_vip\": false\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/customers",
-              "host": ["{{base_url}}"],
-              "path": ["customers"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const response = pm.response.json();",
-                  "    pm.collectionVariables.set('customer_id', response.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get Customers",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/customers?restaurant_id={{restaurant_id}}&search=john&skip=0&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["customers"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                },
-                {
-                  "key": "search",
-                  "value": "john"
-                },
-                {
-                  "key": "skip",
-                  "value": "0"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                }
-              ]
-            }
+            "url": "{{baseUrl}}/notifications/mark-read?restaurant_id={{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"notification_ids\": [1, 2, 3]}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Customer",
+          "name": "List Notifications by Type",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/type/order_update" }
+        },
+        {
+          "name": "List Notifications for Order",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/orders/1" }
+        },
+        {
+          "name": "List Notifications for KOT",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/kots/1" }
+        },
+        {
+          "name": "List Notifications for Inventory Item",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/inventory/1" }
+        }
+      ]
+    },
+    {
+      "name": "💳 Tax Configuration",
+      "item": [
+        {
+          "name": "Create Tax",
           "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/customers/{{customer_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["customers", "{{customer_id}}"]
-            }
+            "method": "POST",
+            "url": "{{baseUrl}}/tax-config/",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"VAT\", \"percentage\": 13}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Update Customer",
+          "name": "Get Tax",
+          "request": { "method": "GET", "url": "{{baseUrl}}/tax-config/1" }
+        },
+        {
+          "name": "Update Tax",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"John Smith\",\n  \"phone\": \"+977-1234567890\",\n  \"email\": \"johnsmith@example.com\",\n  \"is_vip\": true\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/customers/{{customer_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["customers", "{{customer_id}}"]
-            }
+            "url": "{{baseUrl}}/tax-config/1",
+            "body": { "mode": "raw", "raw": "{\"percentage\": 15}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Customer by Phone",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/customers/phone/+977-9876543210?restaurant_id={{restaurant_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["customers", "phone", "+977-9876543210"],
-              "query": [
-                {
-                  "key": "restaurant_id",
-                  "value": "{{restaurant_id}}"
-                }
-              ]
-            }
-          }
+          "name": "Delete Tax",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/tax-config/1" }
         },
         {
-          "name": "Redeem Loyalty Points",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"points\": 100\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/customers/{{customer_id}}/loyalty/redeem",
-              "host": ["{{base_url}}"],
-              "path": ["customers", "{{customer_id}}", "loyalty", "redeem"]
-            }
-          }
+          "name": "List Taxes for Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/tax-config/restaurant/{{restaurantId}}" }
         }
       ]
     },
     {
-      "name": "12. Reservation Management",
+      "name": "🏷️ Discounts",
       "item": [
         {
-          "name": "Create Reservation",
+          "name": "Create Discount",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"restaurant_id\": {{restaurant_id}},\n  \"customer_id\": {{customer_id}},\n  \"customer_name\": \"John Doe\",\n  \"customer_phone\": \"+977-9876543210\",\n  \"customer_email\": \"john@example.com\",\n  \"table_id\": {{table_id}},\n  \"number_of_guests\": 4,\n  \"reservation_date\": \"2024-01-20T00:00:00Z\",\n  \"reservation_time\": \"19:00\",\n  \"duration_minutes\": 120,\n  \"special_requests\": \"Window seating preferred\",\n  \"notes\": \"Birthday celebration\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/reservations",
-              "host": ["{{base_url}}"],
-              "path": ["reservations"]
-            }
+            "url": "{{baseUrl}}/discounts/",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"10% Off\", \"type\": \"percentage\", \"value\": 10, \"code\": \"SAVE10\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Get Reservation",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/reservations/1",
-              "host": ["{{base_url}}"],
-              "path": ["reservations", "1"]
-            }
-          }
+          "name": "Get Discount",
+          "request": { "method": "GET", "url": "{{baseUrl}}/discounts/1" }
         },
         {
-          "name": "Update Reservation",
+          "name": "Update Discount",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"customer_name\": \"Jane Doe\",\n  \"number_of_guests\": 6,\n  \"reservation_time\": \"20:00\",\n  \"special_requests\": \"Quiet corner table\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/reservations/1",
-              "host": ["{{base_url}}"],
-              "path": ["reservations", "1"]
-            }
+            "url": "{{baseUrl}}/discounts/1",
+            "body": { "mode": "raw", "raw": "{\"value\": 15}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Confirm Reservation",
-          "request": {
-            "method": "POST",
-            "url": {
-              "raw": "{{base_url}}/reservations/1/confirm",
-              "host": ["{{base_url}}"],
-              "path": ["reservations", "1", "confirm"]
-            }
-          }
+          "name": "Delete Discount",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/discounts/1" }
+        },
+        {
+          "name": "List Discounts for Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/discounts/restaurant/{{restaurantId}}" }
+        },
+        {
+          "name": "Get Discount by Code",
+          "request": { "method": "GET", "url": "{{baseUrl}}/discounts/restaurant/{{restaurantId}}/code/SAVE10" }
         }
       ]
     },
     {
-      "name": "13. Payment Processing",
+      "name": "🧩 Modifiers",
       "item": [
         {
-          "name": "Generate Fonepay QR",
+          "name": "Create Modifier Group",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"order_id\": {{order_id}},\n  \"r1\": \"additional_param_1\",\n  \"r2\": \"additional_param_2\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/payments/fonepay/qr",
-              "host": ["{{base_url}}"],
-              "path": ["payments", "fonepay", "qr"]
-            }
+            "url": "{{baseUrl}}/modifiers/groups",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"Size\", \"min_selections\": 1, \"max_selections\": 1}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Check Fonepay Status",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/payments/fonepay/FP123456789/status",
-              "host": ["{{base_url}}"],
-              "path": ["payments", "fonepay", "FP123456789", "status"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "14. User Management",
-      "item": [
-        {
-          "name": "Create User",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Waiter User\",\n  \"email\": \"waiter@yummy.com\",\n  \"password\": \"waiter123456\",\n  \"role\": \"waiter\",\n  \"restaurant_id\": {{restaurant_id}}\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/users/",
-              "host": ["{{base_url}}"],
-              "path": ["users", ""]
-            }
-          }
+          "name": "Get Modifier Group",
+          "request": { "method": "GET", "url": "{{baseUrl}}/modifiers/groups/1" }
         },
         {
-          "name": "Get All Users",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/users/all",
-              "host": ["{{base_url}}"],
-              "path": ["users", "all"]
-            }
-          }
-        },
-        {
-          "name": "Get User",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/users/{{user_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["users", "{{user_id}}"]
-            }
-          }
-        },
-        {
-          "name": "Update User",
+          "name": "Update Modifier Group",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Waiter\",\n  \"role\": \"manager\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/users/{{user_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["users", "{{user_id}}"]
-            }
+            "url": "{{baseUrl}}/modifiers/groups/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Portion Size\"}", "options": { "raw": { "language": "json" } } }
           }
         },
         {
-          "name": "Change Password",
+          "name": "Delete Modifier Group",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/modifiers/groups/1" }
+        },
+        {
+          "name": "List Modifier Groups",
+          "request": { "method": "GET", "url": "{{baseUrl}}/modifiers/groups?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Create Modifier",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"old_password\": \"admin123456\",\n  \"new_password\": \"newpassword123\",\n  \"confirm_password\": \"newpassword123\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/users/change-password",
-              "host": ["{{base_url}}"],
-              "path": ["users", "change-password"]
-            }
+            "url": "{{baseUrl}}/modifiers",
+            "body": { "mode": "raw", "raw": "{\"modifier_group_id\": 1, \"name\": \"Small\", \"price\": 0}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Modifier",
+          "request": { "method": "GET", "url": "{{baseUrl}}/modifiers/1" }
+        },
+        {
+          "name": "Update Modifier",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/modifiers/1",
+            "body": { "mode": "raw", "raw": "{\"price\": 50}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Modifier",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/modifiers/1" }
+        },
+        {
+          "name": "List Modifiers for Group",
+          "request": { "method": "GET", "url": "{{baseUrl}}/modifiers/groups/1/modifiers" }
+        },
+        {
+          "name": "Link Modifier Group to Menu",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/modifiers/menu-link",
+            "body": { "mode": "raw", "raw": "{\"menu_item_id\": 1, \"modifier_group_id\": 1}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Modifier Groups for Menu Item",
+          "request": { "method": "GET", "url": "{{baseUrl}}/modifiers/menu/1" }
+        },
+        {
+          "name": "Unlink Modifier Group from Menu",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/modifiers/menu/1/groups/1" }
+        }
+      ]
+    },
+    {
+      "name": "👷 Staff",
+      "item": [
+        {
+          "name": "Create Staff",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/staff",
+            "body": { "mode": "raw", "raw": "{\"user_id\": 1, \"position\": \"Chef\", \"salary\": 25000}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Staff",
+          "request": { "method": "GET", "url": "{{baseUrl}}/staff/1" }
+        },
+        {
+          "name": "List Staff",
+          "request": { "method": "GET", "url": "{{baseUrl}}/staff" }
+        },
+        {
+          "name": "Update Staff",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/staff/1",
+            "body": { "mode": "raw", "raw": "{\"salary\": 30000}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Staff",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/staff/1" }
+        }
+      ]
+    },
+    {
+      "name": "💵 Payroll",
+      "item": [
+        {
+          "name": "Create Payroll Run",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/payroll/runs",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"period_start\": \"2026-01-01\", \"period_end\": \"2026-01-15\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "List Payroll Runs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/payroll/runs" }
+        },
+        {
+          "name": "Get Payroll Run",
+          "request": { "method": "GET", "url": "{{baseUrl}}/payroll/runs/1" }
+        },
+        {
+          "name": "Approve Payroll Run",
+          "request": { "method": "POST", "url": "{{baseUrl}}/payroll/runs/1/approve" }
+        },
+        {
+          "name": "Mark Payroll Run Paid",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/payroll/runs/1/paid",
+            "body": { "mode": "raw", "raw": "{\"payment_date\": \"2026-01-16\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Add Payroll Adjustments",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/payroll/runs/1/adjustments",
+            "body": { "mode": "raw", "raw": "{\"adjustments\": [{\"staff_id\": 1, \"type\": \"bonus\", \"amount\": 1000}]}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Payroll Run PDF Payload",
+          "request": { "method": "GET", "url": "{{baseUrl}}/payroll/runs/1/pdf" }
+        },
+        {
+          "name": "Delete Payroll Adjustment",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/payroll/adjustments/1" }
+        },
+        {
+          "name": "Cancel Payroll Run",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/payroll/runs/1/cancel",
+            "body": { "mode": "raw", "raw": "{\"reason\": \"Error in calculation\"}", "options": { "raw": { "language": "json" } } }
           }
         }
       ]
     },
     {
-      "name": "15. Health & Monitoring",
+      "name": "🚚 Suppliers",
+      "item": [
+        {
+          "name": "Create Supplier",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/suppliers",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"Fresh Foods Co.\", \"contact_name\": \"John\", \"phone\": \"+9779800000000\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "List Suppliers",
+          "request": { "method": "GET", "url": "{{baseUrl}}/suppliers?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Supplier",
+          "request": { "method": "GET", "url": "{{baseUrl}}/suppliers/1?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Update Supplier",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/suppliers/1?restaurant_id={{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Fresh Foods Inc.\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Supplier",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/suppliers/1?restaurant_id={{restaurantId}}" }
+        }
+      ]
+    },
+    {
+      "name": "🔧 System",
       "item": [
         {
           "name": "Health Check",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/health",
-              "host": ["{{base_url}}"],
-              "path": ["health"]
-            }
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
         },
         {
-          "name": "Redis Health Check",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/health/redis",
-              "host": ["{{base_url}}"],
-              "path": ["health", "redis"]
-            }
-          }
+          "name": "Redis Health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health/redis" }
         },
         {
-          "name": "Basic Metrics",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{base_url}}/metrics/basic",
-              "host": ["{{base_url}}"],
-              "path": ["metrics", "basic"]
-            }
-          }
+          "name": "Basic Metrics (Admin)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/metrics/basic" }
         }
       ]
     }
