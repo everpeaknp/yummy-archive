@@ -38,6 +38,15 @@ export default function ArchiveDetailsPage() {
   const [tableLoading, setTableLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [missingFile, setMissingFile] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // Initialize selected IDs from manifest
+  useEffect(() => {
+    if (manifest?.criteria?.delete_order_ids) {
+      setSelectedIds(new Set(manifest.criteria.delete_order_ids));
+    }
+  }, [manifest]);
 
   const LIMIT = 50;
 
@@ -67,12 +76,12 @@ export default function ArchiveDetailsPage() {
       
       const status = err.response?.status;
       const errorData = err.response?.data;
-      console.log('Error Data:', errorData); // Log full backend error details
+      console.log('Error Data:', errorData);
 
       if (status === 404) {
         setNotFound(true);
-      } else if (status === 500) {
-        alert("Archive Backend error (500). The service may be down - check Render.com.");
+      } else if (status === 410 || status === 500) {
+        setMissingFile(true); // Treat 500 as missing file too
       }
     } finally {
       setLoading(false);
@@ -87,8 +96,9 @@ export default function ArchiveDetailsPage() {
       setTableData(res.data.data || []);
       setTableMeta(res.data.meta || {});
     } catch (err: any) {
-      if (err.response?.status === 500) {
-        console.warn("Archive files missing (500) - Handled:", err.message);
+      if (err.response?.status === 410 || err.response?.status === 500) {
+        setMissingFile(true);
+        console.warn("Archive files missing (410/500) - Handled:", err.message);
       } else {
         console.error("Failed to fetch table data", err);
       }
@@ -99,12 +109,15 @@ export default function ArchiveDetailsPage() {
   };
 
   const handleDelete = async () => {
-    // Read delete_order_ids from manifest (backend's source of truth)
-    const deleteOrderIds = manifest?.criteria?.delete_order_ids;
+    // Priority: User Selection (Checkboxes) -> Manifest -> All
+    const currentSelection = Array.from(selectedIds);
+    const hasSelection = currentSelection.length > 0;
     
-    const deleteCount = deleteOrderIds && deleteOrderIds.length > 0 ? deleteOrderIds.length : 'ALL';
-    const confirmMsg = deleteOrderIds && deleteOrderIds.length > 0
-      ? `⚠️ PERMANENT ACTION!\n\nThis will DELETE ${deleteOrderIds.length} selected order(s) from the main database.\n\nOrder IDs: ${deleteOrderIds.join(', ')}\n\nAre you absolutely sure?`
+    // If user changed selection, we use that. If not, we fall back to manifest 
+    // BUT since we initialize selectedIds from manifest, selection IS the source of truth now.
+    
+    const confirmMsg = hasSelection
+      ? `⚠️ PERMANENT ACTION!\n\nThis will DELETE ${currentSelection.length} selected order(s) from the main database.\n\nAre you absolutely sure?`
       : `⚠️ PERMANENT ACTION!\n\nThis will DELETE ALL archived orders from the main database.\n\nAre you absolutely sure?`;
     
     if (!confirm(confirmMsg)) return;
@@ -112,22 +125,26 @@ export default function ArchiveDetailsPage() {
 
     setDeleting(true);
     try {
-      // Don't send order_ids - backend reads from manifest
       const payload: any = {
         archive_job_id: jobId,
         restaurant_id: job?.restaurant_id
       };
       
+      // If we have specific selection, send it to override backend
+      if (hasSelection) {
+        payload.order_ids = currentSelection;
+      }
+      
       await archiveApi.post('/jobs/delete', payload);
       
-      const successMsg = deleteOrderIds && deleteOrderIds.length > 0
-        ? `Deletion complete. ${deleteOrderIds.length} order(s) removed from the main database.`
+      const successMsg = hasSelection
+        ? `Deletion complete. ${currentSelection.length} order(s) removed from the main database.`
         : "Deletion complete. All archived orders removed from the main database.";
       alert(successMsg);
       router.push('/');
     } catch (err: any) {
       console.error("Delete failed", err);
-      if (err.response?.status === 500) {
+      if (err.response?.status === 500 || err.response?.status === 410) {
          if (confirm("Source deletion failed (files missing on server). \n\nDo you want to force delete just THIS archive record to clean up?")) {
             await handleDeleteJob();
             return;
@@ -221,7 +238,7 @@ export default function ArchiveDetailsPage() {
           <Button 
             variant="destructive" 
             onClick={handleDelete}
-            disabled={deleting}
+            disabled={deleting || missingFile}
             className="flex-shrink-0"
           >
             {deleting ? (
@@ -229,8 +246,8 @@ export default function ArchiveDetailsPage() {
             ) : (
               <Trash2 className="h-4 w-4 mr-2" />
             )}
-            {manifest?.criteria?.delete_order_ids && manifest.criteria.delete_order_ids.length > 0
-              ? `Delete ${manifest.criteria.delete_order_ids.length} Order(s) from DB`
+            {selectedIds.size > 0
+              ? `Delete ${selectedIds.size} Order(s) from DB`
               : 'Delete All from DB'
             }
           </Button>
@@ -238,18 +255,21 @@ export default function ArchiveDetailsPage() {
       </div>
 
       {/* Selected Orders to Delete Info */}
-      {manifest?.criteria?.delete_order_ids && manifest.criteria.delete_order_ids.length > 0 && (
+      {selectedIds.size > 0 && (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <Trash2 className="h-5 w-5 text-amber-600" />
               <div>
                 <p className="font-medium text-amber-800">
-                  {manifest.criteria.delete_order_ids.length} order(s) selected for deletion
+                  {selectedIds.size} order(s) marked for deletion
                 </p>
-                <p className="text-sm text-amber-600">
-                  Order IDs: {manifest.criteria.delete_order_ids.slice(0, 10).join(', ')}{manifest.criteria.delete_order_ids.length > 10 ? ` and ${manifest.criteria.delete_order_ids.length - 10} more...` : ''}
-                </p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {Array.from(selectedIds).slice(0, 10).map(id => (
+                     <span key={id} className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{id}</span>
+                  ))}
+                  {selectedIds.size > 10 && <span className="text-xs text-amber-600 self-center">...and {selectedIds.size - 10} more</span>}
+                </div>
               </div>
             </div>
           </CardContent>
@@ -336,8 +356,35 @@ export default function ArchiveDetailsPage() {
         )}
       </div>
 
+      {/* Missing File Error State */}
+      {missingFile && (
+        <Card className="border-red-200 bg-red-50/50 mt-4">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <FileText className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-700">Archive File Missing or Expired (410)</h3>
+                <p className="text-sm text-red-600 mt-1">
+                  The archive files for this job are no longer available on the server. This often happens after new deployments if files were stored locally and not in S3.
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
+                  onClick={handleDeleteJob}
+                  disabled={deleting}
+                >
+                  {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                  Delete This Job
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Data Viewer */}
-      {job.status === 'EXPORTED' && (
+      {job.status === 'EXPORTED' && !missingFile && (
         <Card className="overflow-hidden">
           <CardHeader className="bg-slate-50 border-b">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -380,6 +427,11 @@ export default function ArchiveDetailsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600 text-left">
                   <tr>
+                    {activeTable === 'orders' && (
+                      <th className="px-4 py-3 w-[50px]">
+                         {/* Header checkbox could go here if we implemented select-all */}
+                      </th>
+                    )}
                     {Object.keys(tableData[0] || {}).slice(0, 8).map(key => (
                       <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
                         {key.replace(/_/g, ' ').toUpperCase()}
@@ -390,6 +442,21 @@ export default function ArchiveDetailsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {tableData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/50">
+                      {activeTable === 'orders' && (
+                        <td className="px-4 py-3">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(row.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedIds);
+                              if (e.target.checked) newSet.add(row.id);
+                              else newSet.delete(row.id);
+                              setSelectedIds(newSet);
+                            }}
+                            className="rounded border-slate-300"
+                          />
+                        </td>
+                      )}
                       {Object.values(row).slice(0, 8).map((val: any, i) => (
                         <td key={i} className="px-4 py-3 text-slate-900 max-w-[200px] truncate">
                           {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '-')}

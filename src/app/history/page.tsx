@@ -11,6 +11,7 @@ import { Loader2, Database, Archive, List, Search, FilterX, RefreshCw, ShoppingB
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/useDebounce';
 import { OrderRow, OrderRowData } from '@/components/History/OrderRow';
+import MultiRangeSlider from '@/components/ui/MultiRangeSlider';
 
 export default function HistoryPage() {
   const { restaurantId, isAuthenticated } = useAuth();
@@ -29,6 +30,11 @@ export default function HistoryPage() {
   const debouncedSearch = useDebounce(searchQuery, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [channelFilter, setChannelFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('');
+  
+  // Amount Filter State
+  const [priceRange, setPriceRange] = useState({ min: 0, max: 10000 });
+  const [globalMaxAmount, setGlobalMaxAmount] = useState(10000);
 
   // --- AUTH CHECK ---
   useEffect(() => {
@@ -73,7 +79,15 @@ export default function HistoryPage() {
 
       setLiveOrders(liveData);
       setArchivedOrders(archiveData);
+      setLiveOrders(liveData);
+      setArchivedOrders(archiveData);
       setLastRefreshed(new Date());
+
+      // Calculate Global Max for Slider
+      const allOrders = [...liveData, ...archiveData];
+      const maxTotal = allOrders.reduce((max, o) => Math.max(max, o.total), 1000);
+      setGlobalMaxAmount(Math.ceil(maxTotal / 100) * 100); // Round up to nearest 100
+      setPriceRange({ min: 0, max: Math.ceil(maxTotal / 100) * 100 });
       
       console.log('[HistoryPage] Load complete. Live:', liveData.length, 'Archived:', archiveData.length);
     } catch (err) {
@@ -211,11 +225,19 @@ export default function HistoryPage() {
       orders = orders.filter(o => o.source !== 'error' && o.channel === channelFilter);
     }
 
+    // 5. Apply Date filter
+    if (dateFilter) {
+      orders = orders.filter(o => o.created_at.startsWith(dateFilter));
+    }
+
+    // 6. Apply Amount filter (Slider)
+    orders = orders.filter(o => o.total >= priceRange.min && o.total <= priceRange.max);
+
     // 5. Sort by date (newest first)
     return orders.sort((a, b) => 
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-  }, [activeTab, liveOrders, archivedOrders, debouncedSearch, statusFilter, channelFilter]);
+  }, [activeTab, liveOrders, archivedOrders, debouncedSearch, statusFilter, channelFilter, dateFilter, priceRange]);
 
   // --- COMPUTED: Stats (from FULL dataset, ignoring filters) ---
   const stats = useMemo(() => {
@@ -351,6 +373,29 @@ export default function HistoryPage() {
             <option value="delivery">Delivery</option>
           </select>
 
+          {/* Date Filter */}
+          <Input 
+            type="date"
+            className="w-auto h-10"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+          />
+
+          {/* Amount Slider */}
+          <div className="flex flex-col justify-center w-full sm:w-64 px-2">
+             <div className="flex justify-between text-xs text-slate-500 mb-2">
+               <span className="font-medium">Amount</span>
+               <span>Rs. {priceRange.min} - {priceRange.max}</span>
+             </div>
+             <MultiRangeSlider
+               min={0}
+               max={globalMaxAmount}
+               minVal={priceRange.min}
+               maxVal={priceRange.max}
+               onChange={({ min, max }) => setPriceRange({ min, max })}
+             />
+          </div>
+
           {/* Tabs */}
           <div className="flex bg-slate-100 p-1 rounded-lg">
             {tabs.map(tab => (
@@ -411,7 +456,8 @@ export default function HistoryPage() {
                 <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                   <List className="h-12 w-12 mb-2 opacity-20" />
                   <p>No orders found</p>
-                  {(searchQuery || statusFilter !== 'all' || channelFilter !== 'all') && (
+                  <p>No orders found</p>
+                  {(searchQuery || statusFilter !== 'all' || channelFilter !== 'all' || dateFilter || minAmount || maxAmount) && (
                     <p className="text-xs mt-1">Try adjusting your filters</p>
                   )}
                 </div>
