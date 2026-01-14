@@ -131,7 +131,10 @@ export default function HistoryPage() {
       threeMonthsAgo.setMonth(today.getMonth() - 3);
       
       const startDay = threeMonthsAgo.toISOString().split('T')[0];
-      const endDay = today.toISOString().split('T')[0];
+      // Extend endDay to tomorrow to cover full timezone range
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const endDay = tomorrow.toISOString().split('T')[0];
       
       console.log('[HistoryPage] Fetching archive jobs from', startDay, 'to', endDay);
       const jobsRes = await archiveApi.get(`/archive/jobs?start_day=${startDay}&end_day=${endDay}`);
@@ -191,20 +194,32 @@ export default function HistoryPage() {
   // --- COMPUTED: Filtered & Displayed Orders ---
   const displayOrders = useMemo(() => {
     // 1. Select source based on tab
-    let orders: OrderRowData[] = [];
+    // 1. Select source based on tab AND deduplicate
+    let rawOrders: OrderRowData[] = [];
     
     switch (activeTab) {
       case 'live':
-        orders = liveOrders;
+        rawOrders = liveOrders;
         break;
       case 'archived':
-        orders = archivedOrders;
+        rawOrders = archivedOrders;
         break;
       case 'all':
       default:
-        orders = [...liveOrders, ...archivedOrders];
+        // Merge Live + Archived (Deduplicate, preferring Live)
+        const combined = new Map<any, OrderRowData>();
+        
+        // Add archived first
+        archivedOrders.forEach(o => combined.set(o.id, o));
+        
+        // Overwrite/Add live (so live status takes precedence if exists in both)
+        liveOrders.forEach(o => combined.set(o.id, o));
+        
+        rawOrders = Array.from(combined.values());
         break;
     }
+    
+    let orders = rawOrders;
 
     // 2. Apply search filter (order ID)
     if (debouncedSearch) {
@@ -225,9 +240,18 @@ export default function HistoryPage() {
       orders = orders.filter(o => o.source !== 'error' && o.channel === channelFilter);
     }
 
-    // 5. Apply Date filter
+    // 5. Apply Date filter (Robust)
     if (dateFilter) {
-      orders = orders.filter(o => o.created_at.startsWith(dateFilter));
+      orders = orders.filter(o => {
+          if (o.source === 'error') return false;
+          if (o.created_at.startsWith(dateFilter)) return true;
+          // Try local date conversion check
+          try {
+             const d = new Date(o.created_at);
+             if (d.toLocaleDateString('en-CA') === dateFilter) return true;
+          } catch(e) {}
+          return false;
+      });
     }
 
     // 6. Apply Amount filter (Slider)

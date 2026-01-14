@@ -20,6 +20,7 @@ interface Order {
   status: string;
   channel?: string;
   items_count?: number;
+  isDeleted?: boolean;
 }
 
 export default function OrdersDayPage() {
@@ -29,6 +30,9 @@ export default function OrdersDayPage() {
   const day = params.day as string; // YYYY-MM-DD
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [liveOrders, setLiveOrders] = useState<Order[]>([]);
+  const [archivedOrdersData, setArchivedOrdersData] = useState<Order[]>([]);
+  
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [archiving, setArchiving] = useState(false);
@@ -53,6 +57,49 @@ export default function OrdersDayPage() {
       fetchArchivedOrders();
     }
   }, [restaurantId, day]);
+
+  // Merge Live and Archived Orders
+  useEffect(() => {
+    const merged = new Map<number, Order>();
+    
+    // 1. Add Archived Orders (mark them as deleted from main DB initially)
+    // Filter to ensure we only show orders for THIS day (since we fetch a wide range of jobs)
+    archivedOrdersData.forEach(obj => {
+      const o = obj as any;
+      const timestamp = o.created_at || o.business_date;
+      
+      let match = false;
+      if (timestamp) {
+          match = timestamp.startsWith(day);
+          if (!match) {
+             try {
+                const d = new Date(timestamp);
+                match = d.toLocaleDateString('en-CA') === day;
+             } catch(e) {}
+          }
+          if (!match && o.business_date) {
+             match = o.business_date.startsWith(day);
+          }
+      }
+
+      if (match) {
+        merged.set(o.id || o.order_id!, { ...o, status: o.status || 'archived', isDeleted: true });
+      }
+    });
+
+    // 2. Add/Override with Live Orders (these exist in DB)
+    liveOrders.forEach(o => {
+      const id = o.id || o.order_id!;
+      const existing = merged.get(id);
+      // It exists in main DB, so isDeleted = false
+      merged.set(id, { ...o, isDeleted: false }); 
+    });
+
+    const sorted = Array.from(merged.values()).sort((a, b) => {
+       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    setOrders(sorted);
+  }, [liveOrders, archivedOrdersData]);
 
   // --- HELPER: Robust Response Parser ---
   const parseOrdersResponse = (raw: any): any[] => {
@@ -82,7 +129,7 @@ export default function OrdersDayPage() {
       let allOrders: any[] = [];
       
       if (querySuffix) {
-        // ... (Keep existing suffix logic) ...
+        // Test query suffix mode
         const suffix = querySuffix.startsWith('&') ? querySuffix : `&status=${querySuffix}`;
         debugLogs.push(`TESTING QUERY: "${suffix}"`);
         
@@ -92,11 +139,11 @@ export default function OrdersDayPage() {
         allOrders = parseOrdersResponse(res.data);
         debugLogs.push(`Success! Got ${allOrders.length} orders.`);
       } else {
-        // Default Load: Try /orders/ with ALL statuses
-        debugLogs.push(`Fetching /orders/...`);
+        // Fetch MORE orders and rely on Client-Side Filtering to catch everything
+        // This avoids missing orders due to timezone mismatches on server
+        debugLogs.push(`Fetching last 500 orders (unfiltered)`);
         
-        // Try fetching ALL orders without status filter first
-        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`; 
+        const url = `/orders/?restaurant_id=${restaurantId}&limit=500`; // Fetch 500 to cover full day + buffer 
         const res = await mainApi.get(url);
         
         const raw = res.data;
@@ -104,7 +151,7 @@ export default function OrdersDayPage() {
         
         // Use robust parser
         allOrders = parseOrdersResponse(raw);
-        debugLogs.push(`Extracted ${allOrders.length} orders using parseOrdersResponse`);
+        debugLogs.push(`Extracted ${allOrders.length} orders from API`);
       }
 
       // Final Safety Check
@@ -135,15 +182,41 @@ export default function OrdersDayPage() {
         dateRange: range
       });
 
-      // Filter by date
+      // Filter by date (robustly handling timezones)
+      const rejected: any[] = [];
       const dayOrders = uniqueOrders.filter((order: any) => {
-        const orderDate = order.created_at || order.business_date;
-        if (!orderDate) return false;
-        const orderDay = orderDate.split('T')[0];
-        return orderDay === day;
+        const timestamp = order.created_at || order.business_date;
+        if (!timestamp) return false;
+        
+        // Convert API timestamp to YYYY-MM-DD in LOCAL time (or whatever 'day' represents)
+        // 'day' is "2026-01-14". 
+        // If API returns "2026-01-14T03:00:00Z" (UTC), and we are in +05:45, that is 08:45 AM Local. 
+        // We should just match the string prefix if it matches 'day', OR check business_date
+        
+        // Strategy: Match exact string prefix first (fastest)
+        let match = timestamp.startsWith(day);
+        
+        // If not matching prefix, try timezone conversion
+        if (!match) {
+            try {
+                const d = new Date(timestamp);
+                const localDate = d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+                match = localDate === day;
+            } catch (e) {}
+        }
+
+        // Also check explicit business_date matching if available and different
+        if (!match && order.business_date) {
+            match = order.business_date.startsWith(day);
+        }
+
+        if (!match) {
+             rejected.push({ id: order.id||order.order_id, date: timestamp, day: day });
+        }
+        return match;
       });
       
-      setOrders(dayOrders);
+      setLiveOrders(dayOrders);
       if (uniqueOrders.length === 0) {
          setDebugError("Fetched 0 orders. Try the Test Buttons below.");
       }
@@ -166,15 +239,37 @@ export default function OrdersDayPage() {
   const fetchArchivedOrders = async () => {
     try {
       // Check if there's an archive job for this day
-      const start = `${day}T00:00:00Z`;
-      const end = `${day}T23:59:59Z`;
-      const jobsRes = await archiveApi.get(`/archive/jobs?start_day=${day}&end_day=${day}`);
-      const jobs = jobsRes.data?.jobs || [];
+      // Widen the search to catch timezone shifts (yesterday/tomorrow)
+      const dateDate = new Date(day);
+      const prevDate = new Date(dateDate); prevDate.setDate(prevDate.getDate() - 1);
+      const nextDate = new Date(dateDate); nextDate.setDate(nextDate.getDate() + 1);
+      
+      const startDay = prevDate.toISOString().split('T')[0];
+      const endDay = nextDate.toISOString().split('T')[0];
+      
+      console.log(`[OrdersDayPage] searching archives from ${startDay} to ${endDay}`);
+
+      let jobs: any[] = [];
+      try {
+        const jobsRes = await archiveApi.get(`/archive/jobs?start_day=${startDay}&end_day=${endDay}`);
+        jobs = jobsRes.data?.jobs || [];
+        console.log(`[OrdersDayPage] Found ${jobs.length} jobs.`, jobs);
+      } catch (jobsError: any) {
+        // Archive backend might be down - fail gracefully
+        console.warn('[OrdersDayPage] Archive jobs fetch failed (backend may be down):', jobsError.message);
+        // Continue with empty jobs - only live orders will show
+        return; 
+      }
       
       // Get order IDs from any EXPORTED jobs for this day
       const archivedIds = new Set<number>();
       for (const job of jobs) {
         if (job.status === 'EXPORTED') {
+          // If we have an exported job exactly for THIS day, enable valid append mode
+          if (job.archive_day === day) {
+              setAppendMode(true);
+          }
+          
           try {
             const manifestRes = await archiveApi.get(`/archive/${job.job_id}/manifest`);
             // If manifest has order IDs, add them
@@ -187,6 +282,24 @@ export default function OrdersDayPage() {
         }
       }
       setArchivedOrderIds(archivedIds);
+      
+      // Now Fetch DATA for these jobs to show deleted orders
+      let allArchivedData: any[] = [];
+      for (const job of jobs) {
+        if (job.status === 'EXPORTED') {
+          try {
+             // Fetch orders from archive query
+             const res = await archiveApi.get(`/archive/${job.job_id}/query/orders?limit=500`);
+             if (res.data?.data) {
+                allArchivedData = [...allArchivedData, ...res.data.data];
+             }
+          } catch (e) { 
+            console.warn("[OrdersDayPage] Failed to fetch archive data for job", job.job_id); 
+          }
+        }
+      }
+      setArchivedOrdersData(allArchivedData);
+      
     } catch (err) {
       console.error("Failed to check archived orders:", err);
     }
@@ -234,7 +347,9 @@ export default function OrdersDayPage() {
       }
 
       const res = await archiveApi.post('/jobs/archive', payload);
+      console.log('[OrdersDayPage] Archive response:', res.data);
       const jobId = res.data.job_id || res.data.jobs?.[0]?.job_id;
+      console.log('[OrdersDayPage] Navigating to job:', jobId);
       
       const msg = appendMode 
         ? `Full day archived (appended)! Selected orders marked for deletion.`
@@ -285,15 +400,22 @@ export default function OrdersDayPage() {
       }
 
       const res = await archiveApi.post('/jobs/archive', payload);
+      console.log('[OrdersDayPage] Archive All response:', res.data);
+      
+      const jobId = res.data.job_id || res.data.jobs?.[0]?.job_id;
       
       const msg = appendMode 
-        ? `Orders appended to existing archive! Job ID: ${res.data.job_id}`
-        : `Archive job created! Job ID: ${res.data.job_id}`;
+        ? `Orders appended to existing archive! Job ID: ${jobId}`
+        : `Archive job created! Job ID: ${jobId}`;
             
       alert(msg);
-      setTimeout(() => {
-        router.push(`/archive/${res.data.job_id}`);
-      }, 500);
+      if (jobId) {
+          setTimeout(() => {
+            router.push(`/archive/${jobId}`);
+          }, 500);
+      } else {
+          console.error("No Job ID returned!");
+      }
     } catch (err: any) {
       console.error("Failed to create archive job:", err);
       const errorMsg = err.response?.data?.message || err.message;
@@ -453,22 +575,23 @@ export default function OrdersDayPage() {
                 const isArchived = archivedOrderIds.has(orderId);
                 
                 return (
-                  <div 
-                    key={orderId}
-                    className={cn(
-                      "flex items-center gap-4 p-4 cursor-pointer hover:bg-slate-50 transition-colors",
-                      isSelected && "bg-blue-50",
-                      isArchived && "opacity-60"
-                    )}
-                    onClick={() => toggleSelect(orderId)}
-                  >
-                    {/* Checkbox */}
-                    <div className={cn(
-                      "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors",
-                      isSelected ? "bg-blue-600 border-blue-600" : "border-slate-300"
-                    )}>
-                      {isSelected && <CheckCircle className="h-4 w-4 text-white" />}
-                    </div>
+                    <div 
+                      key={orderId}
+                      className={cn(
+                        "flex items-center gap-4 p-4 transition-colors",
+                        order.isDeleted ? "cursor-default opacity-50 bg-slate-50" : "cursor-pointer hover:bg-slate-50",
+                        isSelected && "bg-blue-50"
+                      )}
+                      onClick={() => !order.isDeleted && toggleSelect(orderId)}
+                    >
+                      {/* Checkbox */}
+                      <div className={cn(
+                        "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors",
+                        order.isDeleted ? "border-slate-200 bg-slate-100" : (isSelected ? "bg-blue-600 border-blue-600" : "border-slate-300")
+                      )}>
+                        {isSelected && <CheckCircle className="h-4 w-4 text-white" />}
+                        {order.isDeleted && <Archive className="h-3 w-3 text-slate-400" />}
+                      </div>
 
                     {/* Order Info */}
                     <div className="flex-1 min-w-0">

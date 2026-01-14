@@ -24,9 +24,11 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
+    // Check localStorage immediately
     const storedToken = localStorage.getItem('access_token');
     const storedRestId = localStorage.getItem('restaurant_id');
     if (storedToken) {
@@ -35,6 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (storedRestId) {
       setRestaurantId(Number(storedRestId));
     }
+    setIsLoading(false);
   }, []);
 
   const login = (newToken: string, newRestaurantId: number) => {
@@ -54,7 +57,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ token, restaurantId, login, logout, isAuthenticated: !!token }}>
-      {children}
+      {!isLoading && children}
     </AuthContext.Provider>
   );
 };

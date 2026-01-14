@@ -41,6 +41,8 @@ export default function ArchiveDetailsPage() {
   const [missingFile, setMissingFile] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  const HIDDEN_COLUMNS = new Set(['group_id', 'customer_name', 'customer_phone']);
+
   // Initialize selected IDs from manifest
   useEffect(() => {
     if (manifest?.criteria?.delete_order_ids) {
@@ -52,6 +54,7 @@ export default function ArchiveDetailsPage() {
 
   useEffect(() => {
     if (jobId && jobId !== 'undefined') {
+      console.log('[ArchiveDetails] Loading job from URL param:', jobId);
       fetchJobDetails();
     }
   }, [jobId]);
@@ -62,29 +65,47 @@ export default function ArchiveDetailsPage() {
     }
   }, [job, activeTable, page]);
 
-  const fetchJobDetails = async () => {
-    setLoading(true);
+  // Poll for status updates if exporting
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (job?.status === 'EXPORTING' || job?.status === 'PENDING') {
+      interval = setInterval(() => {
+        fetchJobDetails(true); // silent update
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [job?.status]);
+
+  const fetchJobDetails = async (isPolling = false) => {
+    if (!isPolling) setLoading(true);
     try {
-      const [jobRes, manifestRes] = await Promise.all([
-        archiveApi.get(`/jobs/archive/${jobId}`),
-        archiveApi.get(`/archive/${jobId}/manifest`).catch(() => ({ data: null }))
-      ]);
-      setJob(jobRes.data);
-      setManifest(manifestRes.data);
+      // 1. Fetch Job Status
+      const jobRes = await archiveApi.get(`/jobs/archive/${jobId}`);
+      const jobData = jobRes.data;
+      setJob(jobData);
+      
+      console.log(`[ArchiveDetails] Job status: ${jobData.status}`);
+
+      // 2. If EXPORTED, fetch Manifest
+      if (jobData.status === 'EXPORTED') {
+          try {
+             const manifestRes = await archiveApi.get(`/archive/${jobId}/manifest`);
+             setManifest(manifestRes.data);
+          } catch(e) {
+             console.warn("Manifest fetch failed (might be retrying)", e);
+          }
+      }
     } catch (err: any) {
       console.error("Failed to fetch job details", err);
       
       const status = err.response?.status;
-      const errorData = err.response?.data;
-      console.log('Error Data:', errorData);
-
       if (status === 404) {
         setNotFound(true);
       } else if (status === 410 || status === 500) {
-        setMissingFile(true); // Treat 500 as missing file too
+        setMissingFile(true); 
       }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   };
 
@@ -93,6 +114,7 @@ export default function ArchiveDetailsPage() {
     try {
       const offset = page * LIMIT;
       const res = await archiveApi.get(`/archive/${jobId}/query/${activeTable}?limit=${LIMIT}&offset=${offset}&sort_desc=true`);
+      console.log(`[ArchiveDetails] Table ${activeTable} data (first 3):`, res.data.data?.slice(0, 3));
       setTableData(res.data.data || []);
       setTableMeta(res.data.meta || {});
     } catch (err: any) {
@@ -428,42 +450,52 @@ export default function ArchiveDetailsPage() {
                 <thead className="bg-slate-50 text-slate-600 text-left">
                   <tr>
                     {activeTable === 'orders' && (
-                      <th className="px-4 py-3 w-[50px]">
-                         {/* Header checkbox could go here if we implemented select-all */}
-                      </th>
+                      <th className="px-4 py-3 w-[50px]"></th>
                     )}
-                    {Object.keys(tableData[0] || {}).slice(0, 8).map(key => (
-                      <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
-                        {key.replace(/_/g, ' ').toUpperCase()}
-                      </th>
-                    ))}
+                    {(() => {
+                       const allKeys = Object.keys(tableData[0] || {});
+                       const visibleKeys = allKeys.filter(k => !HIDDEN_COLUMNS.has(k)).slice(0, 12);
+                       return visibleKeys.map(key => (
+                         <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
+                           {key.replace(/_/g, ' ').toUpperCase()}
+                         </th>
+                       ));
+                    })()}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tableData.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50">
-                      {activeTable === 'orders' && (
-                        <td className="px-4 py-3">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedIds.has(row.id)}
-                            onChange={(e) => {
-                              const newSet = new Set(selectedIds);
-                              if (e.target.checked) newSet.add(row.id);
-                              else newSet.delete(row.id);
-                              setSelectedIds(newSet);
-                            }}
-                            className="rounded border-slate-300"
-                          />
-                        </td>
-                      )}
-                      {Object.values(row).slice(0, 8).map((val: any, i) => (
-                        <td key={i} className="px-4 py-3 text-slate-900 max-w-[200px] truncate">
-                          {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '-')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {(() => {
+                    const allKeys = Object.keys(tableData[0] || {});
+                    const visibleKeys = allKeys.filter(k => !HIDDEN_COLUMNS.has(k)).slice(0, 12);
+                    
+                    return tableData.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        {activeTable === 'orders' && (
+                          <td className="px-4 py-3">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedIds.has(row.id)}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedIds);
+                                if (e.target.checked) newSet.add(row.id);
+                                else newSet.delete(row.id);
+                                setSelectedIds(newSet);
+                              }}
+                              className="rounded border-slate-300"
+                            />
+                          </td>
+                        )}
+                        {visibleKeys.map((key) => {
+                          const val = row[key];
+                          return (
+                            <td key={key} className="px-4 py-3 text-slate-900 max-w-[200px] truncate" title={String(val)}>
+                              {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '-')}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             )}

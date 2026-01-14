@@ -7,7 +7,7 @@ import { mainApi, archiveApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths } from 'date-fns';
-import { Loader2, Archive, Eye, ChevronLeft, ChevronRight, RefreshCw, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Loader2, Archive, Eye, ChevronLeft, ChevronRight, RefreshCw, CheckCircle, XCircle, Clock, FilePlus } from 'lucide-react';
 import { ArchiveJob } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -38,19 +38,19 @@ export default function Dashboard() {
       setJobs(resJobs.data.jobs || []);
     } catch (err: any) {
       console.error("Failed to fetch jobs", err);
+      // Don't clear jobs here, kept state might be better than empty
     }
 
     try {
-      // Use /sales/?filter=monthly endpoint - returns total_sales, total_orders, periods[]
+      // Restore the working endpoint that gave 4 orders
+      // If this fails, we will try the analytics endpoint
       const resSales = await mainApi.get(`/sales/?restaurant_id=${restaurantId}&filter=daily`);
       console.log("Sales response:", resSales.data);
       
       const salesData = resSales.data?.data || resSales.data;
       let mappedStats: any[] = [];
       
-      // The response has: { total_sales, total_orders, periods: [{ period, sales, orders }] }
       if (salesData?.periods && Array.isArray(salesData.periods)) {
-        // Monthly periods (like "2026-01") - we'll use this for summary but need daily for list
         mappedStats = salesData.periods.map((item: any) => ({
           date: item.period || item.date,
           order_count: item.orders || item.order_count || 0,
@@ -58,17 +58,23 @@ export default function Dashboard() {
         }));
       }
       
-      // Also store totals for the summary cards directly from API
       if (salesData?.total_orders !== undefined) {
         setTotalOrders(salesData.total_orders || 0);
         setTotalSales(salesData.total_sales || salesData.total_amount || 0);
       }
       
-      console.log("Mapped stats:", mappedStats);
       setDailyStats(mappedStats);
     } catch (err: any) {
-      const errorMsg = err.response?.data?.message || err.message || "Network error";
-      console.warn("Stats API unavailable:", errorMsg);
+        console.warn("Sales endpoint failed, trying analytics...", err);
+        try {
+            // Fallback to analytics endpoint from API docs
+            const resAnalytics = await mainApi.get(`/analytics/dashboard?restaurant_id=${restaurantId}`);
+            const data = resAnalytics.data;
+            if (data?.total_orders) setTotalOrders(data.total_orders);
+            if (data?.total_sales) setTotalSales(data.total_sales);
+        } catch (analyticsErr) {
+             console.error("Analytics also failed", analyticsErr);
+        }
     } finally {
       setLoading(false);
     }
@@ -109,7 +115,25 @@ export default function Dashboard() {
   });
 
   const getJobForDate = (dateStr: string) => {
-    return jobs.find(j => j.archive_day === dateStr);
+    // Find all jobs for this day
+    const candidates = jobs.filter(j => j.archive_day === dateStr);
+    
+    if (candidates.length === 0) return undefined;
+    
+    // Sort logic:
+    // 1. Prefer EXPORTED over others
+    // 2. Prefer latest created_at
+    candidates.sort((a: any, b: any) => {
+        if (a.status === 'EXPORTED' && b.status !== 'EXPORTED') return -1;
+        if (a.status !== 'EXPORTED' && b.status === 'EXPORTED') return 1;
+        
+        // If status same, sort by date desc
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+    });
+    
+    return candidates[0];
   };
 
   const getStatusBadge = (job: ArchiveJob) => {
@@ -247,15 +271,40 @@ export default function Dashboard() {
                       <>
                         {getStatusBadge(job)}
                         {/* Show View button for ALL jobs - so users can delete failed ones */}
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          onClick={() => router.push(`/archive/${job.job_id}`)}
-                          className="h-8 text-xs md:text-sm"
-                        >
-                          <Eye className="h-3.5 w-3.5 mr-1" />
-                          View
-                        </Button>
+                        {(() => {
+                           // Check Append Condition
+                           if (job.status === 'EXPORTED') {
+                               const anyJob = job as any;
+                               const archivedCount = anyJob.row_count || anyJob.orders_count || 0;
+                               const totalCount = stat?.order_count || 0;
+                               // If total count > archived count, new orders exist -> APPEND
+                               if (totalCount > archivedCount) {
+                                  return (
+                                    <Button 
+                                      size="sm" 
+                                      onClick={() => router.push(`/orders/${dateStr}`)}
+                                      className="h-8 text-xs md:text-sm bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                                    >
+                                      <FilePlus className="h-3.5 w-3.5 mr-1" />
+                                      Append
+                                    </Button>
+                                  );
+                               }
+                           }
+                           
+                           // Default View Button
+                           return (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => router.push(`/archive/${job.job_id}`)}
+                                  className="h-8 text-xs md:text-sm"
+                                >
+                                  <Eye className="h-3.5 w-3.5 mr-1" />
+                                  View
+                                </Button>
+                           );
+                        })()}
                       </>
                     ) : !isFuture ? (
                       <Button 
