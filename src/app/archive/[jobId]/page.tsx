@@ -60,7 +60,8 @@ export default function ArchiveDetailsPage() {
   }, [jobId]);
 
   useEffect(() => {
-    if (job?.status === 'EXPORTED') {
+    // Check for complete statuses
+    if (['EXPORTED', 'SYNCED'].includes(job?.status || '')) {
       fetchTableData();
     }
   }, [job, activeTable, page]);
@@ -68,7 +69,9 @@ export default function ArchiveDetailsPage() {
   // Poll for status updates if exporting
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (job?.status === 'EXPORTING' || job?.status === 'PENDING') {
+    // Poll for active statuses
+    const activeStatuses = ['PENDING', 'APPENDING', 'IN_PROGRESS', 'EXPORTING'];
+    if (activeStatuses.includes(job?.status || '')) {
       interval = setInterval(() => {
         fetchJobDetails(true); // silent update
       }, 3000);
@@ -86,8 +89,8 @@ export default function ArchiveDetailsPage() {
       
       console.log(`[ArchiveDetails] Job status: ${jobData.status}`);
 
-      // 2. If EXPORTED, fetch Manifest
-      if (jobData.status === 'EXPORTED') {
+      // 2. If EXPORTED or SYNCED, fetch Manifest
+      if (['EXPORTED', 'SYNCED'].includes(jobData.status)) {
           try {
              const manifestRes = await archiveApi.get(`/archive/${jobId}/manifest`);
              setManifest(manifestRes.data);
@@ -256,47 +259,19 @@ export default function ArchiveDetailsPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Archive Details</h1>
         </div>
         
-        {job.status === 'EXPORTED' && tableData.length > 0 && (
+        {['EXPORTED', 'SYNCED'].includes(job.status) && (
           <Button 
-            variant="destructive" 
-            onClick={handleDelete}
-            disabled={deleting || missingFile}
-            className="flex-shrink-0"
+            onClick={() => router.push(`/archive/${jobId}/compare`)}
+            className="flex-shrink-0 bg-red-600 hover:bg-red-700 text-white"
+            size="lg"
           >
-            {deleting ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-2" />
-            )}
-            {selectedIds.size > 0
-              ? `Delete ${selectedIds.size} Order(s) from DB`
-              : 'Delete All from DB'
-            }
+            <Trash2 className="h-4 w-4 mr-2" />
+            Compare & Delete from Live DB
           </Button>
         )}
       </div>
 
-      {/* Selected Orders to Delete Info */}
-      {selectedIds.size > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <Trash2 className="h-5 w-5 text-amber-600" />
-              <div>
-                <p className="font-medium text-amber-800">
-                  {selectedIds.size} order(s) marked for deletion
-                </p>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {Array.from(selectedIds).slice(0, 10).map(id => (
-                     <span key={id} className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{id}</span>
-                  ))}
-                  {selectedIds.size > 10 && <span className="text-xs text-amber-600 self-center">...and {selectedIds.size - 10} more</span>}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Archive Info Cards */}
 
       {/* Job Info Cards */}
       <div className="grid md:grid-cols-2 gap-4">
@@ -405,8 +380,28 @@ export default function ArchiveDetailsPage() {
         </Card>
       )}
 
+      {/* Info Banner - Direct to Compare Page */}
+      {['EXPORTED', 'SYNCED'].includes(job.status) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+          <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-blue-800">Data Viewer shows raw archived data</p>
+            <p className="text-sm text-blue-700 mt-1">
+              To safely delete orders from the live database, use the{' '}
+              <button 
+                onClick={() => router.push(`/archive/${jobId}/compare`)}
+                className="font-semibold underline hover:text-blue-900"
+              >
+                Compare & Delete
+              </button>{' '}
+              page. It shows which orders are already deleted vs still in live DB.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Data Viewer */}
-      {job.status === 'EXPORTED' && !missingFile && (
+      {['EXPORTED', 'SYNCED'].includes(job.status) && !missingFile && (
         <Card className="overflow-hidden">
           <CardHeader className="bg-slate-50 border-b">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -449,9 +444,6 @@ export default function ArchiveDetailsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600 text-left">
                   <tr>
-                    {activeTable === 'orders' && (
-                      <th className="px-4 py-3 w-[50px]"></th>
-                    )}
                     {(() => {
                        const allKeys = Object.keys(tableData[0] || {});
                        const visibleKeys = allKeys.filter(k => !HIDDEN_COLUMNS.has(k)).slice(0, 12);
@@ -470,21 +462,6 @@ export default function ArchiveDetailsPage() {
                     
                     return tableData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50">
-                        {activeTable === 'orders' && (
-                          <td className="px-4 py-3">
-                            <input 
-                              type="checkbox" 
-                              checked={selectedIds.has(row.id)}
-                              onChange={(e) => {
-                                const newSet = new Set(selectedIds);
-                                if (e.target.checked) newSet.add(row.id);
-                                else newSet.delete(row.id);
-                                setSelectedIds(newSet);
-                              }}
-                              className="rounded border-slate-300"
-                            />
-                          </td>
-                        )}
                         {visibleKeys.map((key) => {
                           const val = row[key];
                           return (
@@ -560,7 +537,7 @@ export default function ArchiveDetailsPage() {
       )}
 
       {/* Stale/500 Error State - show delete option */}
-      {(job.status === 'EXPORTED' && tableData.length === 0 && !tableLoading) && (
+      {(['EXPORTED', 'SYNCED'].includes(job.status) && tableData.length === 0 && !tableLoading) && (
         <Card className="border-amber-200 bg-amber-50/50 mt-4">
           <CardContent className="p-6">
             <div className="flex items-start gap-3">

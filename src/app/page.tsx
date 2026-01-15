@@ -84,6 +84,63 @@ export default function Dashboard() {
     fetchJobs();
   }, [restaurantId, currentMonth]);
 
+  // Hydrate jobs with manifest data (row counts) and compare data (safe_to_delete)
+  useEffect(() => {
+    const fetchJobDetails = async () => {
+        const jobsNeedingData = jobs.filter(j => 
+            ['EXPORTED', 'SYNCED'].includes(j.status) && 
+            ((j.row_counts?.orders === undefined) || (j as any).safe_to_delete === undefined)
+        );
+
+        if (jobsNeedingData.length === 0) return;
+
+        // Fetch manifest and compare data in parallel
+        const updates = new Map<string, { orders?: number; safe_to_delete?: number }>();
+        
+        await Promise.all(jobsNeedingData.map(async (job) => {
+            const update: { orders?: number; safe_to_delete?: number } = {};
+            
+            // Fetch manifest for order count
+            try {
+                const manifestRes = await archiveApi.get(`/archive/${job.job_id}/manifest`);
+                update.orders = manifestRes.data?.row_counts?.orders || 0;
+            } catch (e) {
+                console.warn(`[Dashboard] Failed to fetch manifest for ${job.job_id}`, e);
+            }
+            
+            // Fetch compare for safe_to_delete count
+            try {
+                const compareRes = await archiveApi.get(`/archive/${job.job_id}/compare`, {
+                    headers: { 'X-Restaurant-ID': String(job.restaurant_id) }
+                });
+                update.safe_to_delete = compareRes.data?.summary?.safe_to_delete || 0;
+            } catch (e) {
+                console.warn(`[Dashboard] Failed to fetch compare for ${job.job_id}`, e);
+            }
+            
+            if (update.orders !== undefined || update.safe_to_delete !== undefined) {
+                updates.set(job.job_id, update);
+            }
+        }));
+
+        if (updates.size > 0) {
+            setJobs(prev => prev.map(j => {
+                const update = updates.get(j.job_id);
+                if (update) {
+                    return { 
+                        ...j, 
+                        row_counts: { ...j.row_counts, orders: update.orders ?? j.row_counts?.orders },
+                        safe_to_delete: update.safe_to_delete
+                    } as any;
+                }
+                return j;
+            }));
+        }
+    };
+
+    fetchJobDetails();
+  }, [jobs.length]); // Only re-run when jobs array length changes
+
   const handleArchive = async (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
     if (!confirm(`Archive orders for ${dateStr}?`)) return;
@@ -121,11 +178,14 @@ export default function Dashboard() {
     if (candidates.length === 0) return undefined;
     
     // Sort logic:
-    // 1. Prefer EXPORTED over others
+    // 1. Prefer complete statuses (EXPORTED, SYNCED) over others
     // 2. Prefer latest created_at
+    const completeStatuses = ['EXPORTED', 'SYNCED'];
     candidates.sort((a: any, b: any) => {
-        if (a.status === 'EXPORTED' && b.status !== 'EXPORTED') return -1;
-        if (a.status !== 'EXPORTED' && b.status === 'EXPORTED') return 1;
+        const aComplete = completeStatuses.includes(a.status);
+        const bComplete = completeStatuses.includes(b.status);
+        if (aComplete && !bComplete) return -1;
+        if (!aComplete && bComplete) return 1;
         
         // If status same, sort by date desc
         const dateA = new Date(a.created_at || 0).getTime();
@@ -137,13 +197,16 @@ export default function Dashboard() {
   };
 
   const getStatusBadge = (job: ArchiveJob) => {
-    const statusConfig = {
+    const statusConfig: Record<string, { bg: string; text: string; icon: any }> = {
       EXPORTED: { bg: 'bg-green-100', text: 'text-green-700', icon: CheckCircle },
+      SYNCED: { bg: 'bg-green-100', text: 'text-green-700', icon: CheckCircle },
       FAILED: { bg: 'bg-red-100', text: 'text-red-700', icon: XCircle },
       PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: Clock },
+      APPENDING: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Loader2 },
+      IN_PROGRESS: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Loader2 },
       EXPORTING: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Loader2 }
     };
-    const config = statusConfig[job.status as keyof typeof statusConfig] || statusConfig.PENDING;
+    const config = statusConfig[job.status] || statusConfig.PENDING;
     const Icon = config.icon;
     return (
       <span className={cn("inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium", config.bg, config.text)}>
@@ -201,9 +264,13 @@ export default function Dashboard() {
         </Card>
         <Card className="hover:shadow-lg transition-shadow">
           <CardContent className="p-4 md:p-6">
-            <p className="text-xs md:text-sm font-medium text-slate-500 mb-1">Archived</p>
+            <p className="text-xs md:text-sm font-medium text-slate-500 mb-1">Archived Orders</p>
             <p className="text-xl md:text-2xl font-bold text-green-600">
-              {jobs.filter(j => j.status === 'EXPORTED').length}
+              {jobs.reduce((sum, j) => {
+                 const anyJob = j as any;
+                 const count = anyJob.row_counts?.orders || anyJob.row_count || anyJob.orders_count || 0;
+                 return sum + count;
+              }, 0).toLocaleString()}
             </p>
           </CardContent>
         </Card>
@@ -211,7 +278,7 @@ export default function Dashboard() {
           <CardContent className="p-4 md:p-6">
             <p className="text-xs md:text-sm font-medium text-slate-500 mb-1">Pending/Failed</p>
             <p className="text-xl md:text-2xl font-bold text-amber-600">
-              {jobs.filter(j => j.status !== 'EXPORTED').length}
+              {jobs.filter(j => !['EXPORTED', 'SYNCED'].includes(j.status)).length}
             </p>
           </CardContent>
         </Card>
@@ -234,77 +301,90 @@ export default function Dashboard() {
               const stat = dailyStats.find(s => s.date === dateStr);
               const job = getJobForDate(dateStr);
               const isFuture = day > new Date();
-              const isCreating = creatingJobForDate === dateStr;
+              
+              const totalCount = stat?.order_count || 0;
+              const anyJob = job as any;
+              
+              // archivedCount = total orders in archive (includes deleted from live)
+              const archivedCount = job ? (anyJob.row_counts?.orders || anyJob.row_count || anyJob.orders_count || 0) : 0;
+              
+              // safe_to_delete = orders in BOTH live AND archive (from /compare endpoint)
+              // If we have accurate safe_to_delete from /compare, use it
+              // Otherwise fall back to approximation
+              const safeToDelete = anyJob?.safe_to_delete;
+              
+              // New orders = total in live - orders already archived (safe_to_delete)
+              // If safe_to_delete is known: new = total - safe_to_delete
+              // If not known: approximate with min(total, archived)
+              const newOrdersCount = safeToDelete !== undefined 
+                ? Math.max(0, totalCount - safeToDelete)
+                : Math.max(0, totalCount - Math.min(totalCount, archivedCount));
+              
+              const canAppend = job && ['EXPORTED', 'SYNCED'].includes(job.status) && newOrdersCount > 0;
 
               return (
                 <div 
                   key={dateStr} 
                   className={cn(
-                    "flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 gap-3 hover:bg-slate-50/50 transition-colors",
+                    "flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 gap-3 hover:bg-slate-50/50 transition-colors border-b last:border-0",
                     isFuture && "opacity-50"
                   )}
                 >
-                  {/* Date & Stats */}
-                  <div className="flex items-center gap-3 md:gap-4">
-                    <div className="h-10 w-10 md:h-12 md:w-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center font-bold text-sm md:text-base shadow-sm">
+                  <div className="flex items-center gap-3 md:gap-4 flex-1">
+                    <div className="h-10 w-10 md:h-12 md:w-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center font-bold text-sm md:text-base shadow-sm shrink-0">
                       {format(day, 'd')}
                     </div>
-                    <div>
-                      <p className="font-medium text-slate-900 text-sm md:text-base">{format(day, 'EEEE, MMM d')}</p>
-                      <p className="text-xs md:text-sm text-slate-500">
-                        {stat ? (
-                          <span className="flex items-center gap-2">
-                            <span className="font-medium text-slate-700">{stat.order_count}</span> orders
-                            <span className="text-slate-300">•</span>
-                            Rs. {stat.total_amount?.toLocaleString()}
-                          </span>
-                        ) : (
-                          <span className="italic">No data</span>
-                        )}
+                    <div className="flex flex-col gap-1 w-full">
+                      <p className="font-medium text-slate-900 text-sm md:text-base flex items-center gap-2">
+                          {format(day, 'EEEE, MMM d')}
+                          {isFuture && <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Future</span>}
                       </p>
+                      
+                      {!isFuture && (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs md:text-sm">
+                            <span className="text-slate-600 font-medium" title="Total Orders in Sales">
+                                Total: <span className="text-slate-900">{totalCount}</span>
+                            </span>
+                            <span className="text-slate-300">|</span>
+                            <span className={cn("font-medium", archivedCount > 0 ? "text-green-600" : "text-slate-400")} title="Archived Orders">
+                                Archived: {archivedCount}
+                            </span>
+                             <span className="text-slate-300">|</span>
+                             <span className={cn("font-medium", newOrdersCount > 0 ? "text-amber-600" : "text-slate-400")} title="New Orders">
+                                New: {newOrdersCount}
+                             </span>
+                             <span className="text-slate-300 hidden sm:inline">•</span>
+                             <span className="text-slate-500">Rs. {stat?.total_amount?.toLocaleString() || 0}</span>
+                          </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 ml-13 sm:ml-0">
+                  <div className="flex items-center gap-2 self-start sm:self-center ml-12 sm:ml-0 shrink-0">
                     {job ? (
                       <>
                         {getStatusBadge(job)}
-                        {/* Show View button for ALL jobs - so users can delete failed ones */}
-                        {(() => {
-                           // Check Append Condition
-                           if (job.status === 'EXPORTED') {
-                               const anyJob = job as any;
-                               const archivedCount = anyJob.row_count || anyJob.orders_count || 0;
-                               const totalCount = stat?.order_count || 0;
-                               // If total count > archived count, new orders exist -> APPEND
-                               if (totalCount > archivedCount) {
-                                  return (
-                                    <Button 
-                                      size="sm" 
-                                      onClick={() => router.push(`/orders/${dateStr}`)}
-                                      className="h-8 text-xs md:text-sm bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
-                                    >
-                                      <FilePlus className="h-3.5 w-3.5 mr-1" />
-                                      Append
-                                    </Button>
-                                  );
-                               }
-                           }
-                           
-                           // Default View Button
-                           return (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => router.push(`/archive/${job.job_id}`)}
-                                  className="h-8 text-xs md:text-sm"
-                                >
-                                  <Eye className="h-3.5 w-3.5 mr-1" />
-                                  View
-                                </Button>
-                           );
-                        })()}
+                        
+                        {canAppend ? (
+                            <Button 
+                                size="sm" 
+                                onClick={() => router.push(`/orders/${dateStr}`)}
+                                className="h-8 text-xs md:text-sm bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                            >
+                                <FilePlus className="h-3.5 w-3.5 mr-1" />
+                                Append ({newOrdersCount})
+                            </Button>
+                        ) : (
+                            <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => router.push(`/archive/${job.job_id}`)}
+                                className="h-8 text-xs md:text-sm"
+                            >
+                                <Eye className="h-3.5 w-3.5 mr-1" />
+                                View
+                            </Button>
+                        )}
                       </>
                     ) : !isFuture ? (
                       <Button 
@@ -313,11 +393,11 @@ export default function Dashboard() {
                         className="h-8 text-xs md:text-sm bg-blue-600 hover:bg-blue-700"
                       >
                         <Archive className="h-3.5 w-3.5 mr-1" />
-                        Select Orders
+                        Archive All
                       </Button>
                     ) : (
                       <span className="text-xs text-slate-400 italic px-2">
-                        {isFuture ? 'Future' : 'Not archived'}
+                        Future
                       </span>
                     )}
                   </div>

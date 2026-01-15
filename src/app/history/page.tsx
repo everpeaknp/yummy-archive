@@ -140,9 +140,10 @@ export default function HistoryPage() {
       const jobsRes = await archiveApi.get(`/archive/jobs?start_day=${startDay}&end_day=${endDay}`);
       
       const jobs = jobsRes.data?.jobs || [];
-      const exportedJobs = jobs.filter((j: any) => j.status === 'EXPORTED');
+      // Per new API: SYNCED also means archive is complete and valid
+      const exportedJobs = jobs.filter((j: any) => ['EXPORTED', 'SYNCED'].includes(j.status));
       
-      console.log('[HistoryPage] Found', exportedJobs.length, 'exported jobs');
+      console.log('[HistoryPage] Found', exportedJobs.length, 'complete archive jobs');
 
       if (exportedJobs.length === 0) return [];
 
@@ -207,13 +208,14 @@ export default function HistoryPage() {
       case 'all':
       default:
         // Merge Live + Archived (Deduplicate, preferring Live)
-        const combined = new Map<any, OrderRowData>();
+        // Merge Live + Archived (Deduplicate, preferring Live)
+        const combined = new Map<string, OrderRowData>();
         
         // Add archived first
-        archivedOrders.forEach(o => combined.set(o.id, o));
+        archivedOrders.forEach(o => combined.set(String(o.id), o));
         
         // Overwrite/Add live (so live status takes precedence if exists in both)
-        liveOrders.forEach(o => combined.set(o.id, o));
+        liveOrders.forEach(o => combined.set(String(o.id), o));
         
         rawOrders = Array.from(combined.values());
         break;

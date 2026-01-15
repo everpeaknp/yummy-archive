@@ -4,7 +4,9 @@
     "method": "GET",
     "summary": "Health Check",
     "description": "Returns the status and version of the API.",
-    "tags": ["System"],
+    "tags": [
+      "System"
+    ],
     "parameters": [],
     "response": {
       "status": "ok",
@@ -16,7 +18,9 @@
     "method": "GET",
     "summary": "Get Global Error",
     "description": "Returns the last captured global error details.",
-    "tags": ["Debug"],
+    "tags": [
+      "Debug"
+    ],
     "parameters": [],
     "response": {
       "last_error": "object or null"
@@ -27,7 +31,9 @@
     "method": "GET",
     "summary": "Database Check",
     "description": "Checks connections to configured databases (reader, deleter, internal).",
-    "tags": ["Debug"],
+    "tags": [
+      "Debug"
+    ],
     "parameters": [],
     "response": {
       "reader": "info",
@@ -38,9 +44,11 @@
   {
     "path": "/jobs/archive",
     "method": "POST",
-    "summary": "Create Archive Job",
-    "description": "Initiates a background job to archive orders based on IDs or date range. Supports appending new orders to existing archives.",
-    "tags": ["Jobs"],
+    "summary": "Create Archive Job (Smart Append)",
+    "description": "Initiates a background job to archive orders. Uses Smart Append Strategy: 1) If valid archive exists, calculates delta and appends new orders. 2) If archive is corrupt/missing, performs atomic re-archive (deletes old + creates fresh).",
+    "tags": [
+      "Jobs"
+    ],
     "request_body": {
       "type": "json",
       "fields": [
@@ -54,19 +62,19 @@
           "name": "order_ids",
           "type": "array[integer]",
           "required": "conditional (Provide order_ids or date range)",
-          "description": "List of specific order IDs to archive"
+          "description": "List of specific order IDs to archive (legacy fallback)"
         },
         {
           "name": "start_date",
           "type": "string (datetime ISO format)",
           "required": "conditional",
-          "description": "Start date for archive range"
+          "description": "Start date for archive range (preferred)"
         },
         {
           "name": "end_date",
           "type": "string (datetime ISO format)",
           "required": "conditional",
-          "description": "End date for archive range"
+          "description": "End date for archive range (preferred)"
         },
         {
           "name": "user",
@@ -74,13 +82,6 @@
           "required": false,
           "default": "from context",
           "description": "User initiating the job"
-        },
-        {
-          "name": "append",
-          "type": "boolean",
-          "required": false,
-          "default": false,
-          "description": "If true, append new orders to existing archive for the same day instead of returning existing job"
         }
       ]
     },
@@ -89,18 +90,31 @@
         {
           "archive_day": "string (YYYY-MM-DD)",
           "job_id": "string (UUID)",
-          "status": "string (PENDING|EXPORTING|EXPORTED|FAILED)",
-          "created": "boolean - true if new job was created",
+          "status": "string (PENDING|APPENDING|SYNCED|IN_PROGRESS|EXPORTING|EXPORTED|FAILED)",
+          "created": "boolean - true if new fresh job was created",
           "appended": "boolean - true if orders are being appended to existing archive",
-          "new_orders": "integer (only present when appended=true) - count of new orders being appended",
-          "message": "string (optional) - informational message e.g. 'No new orders to append'"
+          "message": "string - informational message describing the action taken"
         }
-      ]
+      ],
+      "status_meanings": {
+        "PENDING": "Fresh job created, waiting to start export",
+        "APPENDING": "New orders being appended to existing valid archive",
+        "SYNCED": "Archive already contains all live orders, no action needed",
+        "IN_PROGRESS": "Export task is running",
+        "EXPORTING": "Data export in progress",
+        "EXPORTED": "Archive complete and ready",
+        "FAILED": "Job failed, check error"
+      }
     },
     "errors": {
-      "400": "Archive job not ready for append (not EXPORTED) | Appending would exceed limit of N orders | Invalid criteria",
+      "400": "Invalid criteria | start_date must be before end_date",
       "403": "Restaurant mismatch",
-      "500": "Manifest missing or corrupt"
+      "500": "Internal error during job creation"
+    },
+    "notes": {
+      "smart_append": "If a valid archive exists for the day, only NEW orders (not already in archive) are appended. Existing archived data is preserved.",
+      "atomic_re_archive": "If archive is corrupt/missing, a fresh archive is created. Orders deleted from live DB are automatically recovered from the old parquet files to preserve historical data.",
+      "data_preservation": "Orders deleted from live DB BEFORE re-archive are still preserved in the new archive by loading their data from the old parquet files. This ensures no data loss during re-archive operations."
     }
   },
   {
@@ -108,7 +122,9 @@
     "method": "GET",
     "summary": "Get Archive Job Details",
     "description": "Retrieves status and details of a specific archive job.",
-    "tags": ["Jobs"],
+    "tags": [
+      "Jobs"
+    ],
     "parameters": [
       {
         "name": "job_id",
@@ -135,7 +151,9 @@
     "method": "DELETE",
     "summary": "Delete Archive Job",
     "description": "Deletes an archive job record from the database. Also cleans up associated files in the archive directory and /tmp if they exist.",
-    "tags": ["Jobs"],
+    "tags": [
+      "Jobs"
+    ],
     "parameters": [
       {
         "name": "job_id",
@@ -158,7 +176,9 @@
     "method": "POST",
     "summary": "Create Delete Job",
     "description": "Initiates a hard deletion job for orders previously archived. Deletes orders from the main database using a stored procedure.",
-    "tags": ["Jobs"],
+    "tags": [
+      "Jobs"
+    ],
     "request_body": {
       "type": "json",
       "fields": [
@@ -206,7 +226,10 @@
     "method": "GET",
     "summary": "Get Last Export Error",
     "description": "Returns detailed information about the last failed export job. Only available in development environment.",
-    "tags": ["Jobs", "Debug"],
+    "tags": [
+      "Jobs",
+      "Debug"
+    ],
     "parameters": [],
     "response": {
       "last_export_error": {
@@ -224,7 +247,10 @@
     "method": "GET",
     "summary": "Debug Export Reproduction",
     "description": "Tests database connections and pandas read capability for debugging exports. Only available in development environment.",
-    "tags": ["Jobs", "Debug"],
+    "tags": [
+      "Jobs",
+      "Debug"
+    ],
     "parameters": [],
     "response": {
       "status": "string (OK|ERROR)",
@@ -243,7 +269,9 @@
     "method": "GET",
     "summary": "List Archive Jobs",
     "description": "Lists all archive jobs for the authenticated restaurant, optionally filtered by date range.",
-    "tags": ["Archive Viewer"],
+    "tags": [
+      "Archive Viewer"
+    ],
     "parameters": [
       {
         "name": "start_day",
@@ -276,7 +304,9 @@
     "method": "GET",
     "summary": "Get Job Manifest",
     "description": "Retrieves the manifest JSON file for a successfully exported job. Contains order count, checksums, criteria, and file metadata.",
-    "tags": ["Archive Viewer"],
+    "tags": [
+      "Archive Viewer"
+    ],
     "parameters": [
       {
         "name": "job_id",
@@ -318,7 +348,8 @@
       "400": "Job not ready (not EXPORTED)",
       "403": "Restaurant mismatch",
       "404": "Job not found",
-      "500": "Manifest file missing"
+      "410": "Manifest missing (File lost/expired)",
+      "500": "Server error"
     }
   },
   {
@@ -326,7 +357,9 @@
     "method": "GET",
     "summary": "Query Archive Table",
     "description": "Queries the parquet files for a specific table in an archive job using DuckDB. Supports filtering, sorting, and pagination.",
-    "tags": ["Archive Viewer"],
+    "tags": [
+      "Archive Viewer"
+    ],
     "parameters": [
       {
         "name": "job_id",
@@ -409,7 +442,9 @@
     "method": "GET",
     "summary": "Query Archive Table by Day",
     "description": "Queries archive data for a specific day. Resolves the single archive job for that day and returns table data.",
-    "tags": ["Archive Viewer"],
+    "tags": [
+      "Archive Viewer"
+    ],
     "parameters": [
       {
         "name": "archive_day",
@@ -484,6 +519,136 @@
     "errors": {
       "400": "Invalid day format | Job not ready",
       "404": "Archive job for day not found"
+    }
+  },
+  {
+    "path": "/archive/{job_id}/compare",
+    "method": "GET",
+    "summary": "Compare Archive with Live Database",
+    "description": "Compares archived orders with the live database. Returns all archived orders (PERMANENT) with their deletion status. Orders deleted from live DB remain visible in archive as 'already_deleted' (grayed out, cannot delete again). Orders still in live DB show as 'safe_to_delete'.",
+    "tags": [
+      "Archive Viewer"
+    ],
+    "headers": {
+      "X-Restaurant-ID": "integer (required) - Restaurant ID for authorization",
+      "X-User": "string (optional) - User identifier"
+    },
+    "parameters": [
+      {
+        "name": "job_id",
+        "in": "path",
+        "type": "string",
+        "required": true,
+        "description": "UUID of the archive job"
+      }
+    ],
+    "response": {
+      "job_id": "string (UUID)",
+      "archive_day": "string (YYYY-MM-DD) or null",
+      "summary": {
+        "live_orders": "integer - orders still in main DB",
+        "archived_orders": "integer - total orders in archive (PERMANENT)",
+        "safe_to_delete": "integer - orders in BOTH archive AND live",
+        "already_deleted": "integer - orders in archive but NOT in live",
+        "live_total": "number - sum of totals for live orders",
+        "archived_total": "number - sum of totals for all archived orders"
+      },
+      "order_ids": {
+        "live": "array[integer] - IDs still in main DB",
+        "archived": "array[integer] - all archived IDs (PERMANENT)",
+        "safe_to_delete": "array[integer] - IDs that can be deleted",
+        "already_deleted": "array[integer] - IDs already deleted from live"
+      },
+      "orders": [
+        {
+          "id": "integer - order ID",
+          "created_at": "string or null - ISO datetime (null if _missing_from_parquet is true)",
+          "grand_total": "number - order total amount (0 if _missing_from_parquet is true)",
+          "total": "number - alternative total field",
+          "status": "string - order status (completed, cancelled, 'archived (data unavailable)' if missing)",
+          "customer_name": "string or null",
+          "order_type": "string - dine_in, takeaway, delivery",
+          "payment_status": "string",
+          "_archive_status": "string - 'safe_to_delete' or 'already_deleted'",
+          "_can_delete": "boolean - true if order can be deleted (still in live DB), false if already deleted",
+          "_missing_from_parquet": "boolean (optional) - true if order was in manifest but not found in parquet files (order was deleted before archive export completed). These orders have placeholder values and should be displayed differently in UI."
+        }
+      ]
+    },
+    "response_example": {
+      "job_id": "4a3ef01a-b605-4071-a63a-ade36e7b490f",
+      "archive_day": "2026-01-14",
+      "summary": {
+        "live_orders": 4,
+        "archived_orders": 5,
+        "safe_to_delete": 4,
+        "already_deleted": 1,
+        "live_total": 2710,
+        "archived_total": 3210
+      },
+      "order_ids": {
+        "live": [
+          301,
+          303,
+          304,
+          305
+        ],
+        "archived": [
+          301,
+          302,
+          303,
+          304,
+          305
+        ],
+        "safe_to_delete": [
+          301,
+          303,
+          304,
+          305
+        ],
+        "already_deleted": [
+          302
+        ]
+      },
+      "orders": [
+        {
+          "id": 305,
+          "created_at": "2026-01-14T00:28:00",
+          "grand_total": 400,
+          "status": "completed",
+          "_archive_status": "safe_to_delete",
+          "_can_delete": true
+        },
+        {
+          "id": 302,
+          "created_at": "2026-01-14T00:10:00",
+          "grand_total": 500,
+          "status": "completed",
+          "_archive_status": "already_deleted",
+          "_can_delete": false
+        },
+        {
+          "id": 299,
+          "created_at": null,
+          "grand_total": 0,
+          "status": "archived (data unavailable)",
+          "_archive_status": "already_deleted",
+          "_can_delete": false,
+          "_missing_from_parquet": true
+        }
+      ]
+    },
+    "errors": {
+      "400": "Job not ready (not EXPORTED) | No archived orders found in manifest",
+      "403": "Restaurant mismatch",
+      "404": "Job not found",
+      "500": "Compare failed: <error details>"
+    },
+    "notes": {
+      "permanent_archive": "Archived orders are NEVER deleted from S3. Even after deletion from main DB, order data remains queryable from archive parquet files.",
+      "frontend_usage": "Use _can_delete to disable checkbox/selection for already deleted orders. Use _archive_status to show visual indicator (grayed out). Check _missing_from_parquet to identify orders with placeholder data.",
+      "data_source": "Order details come from S3 parquet files (permanent). Live status comes from main DB query.",
+      "missing_from_parquet": "Orders with _missing_from_parquet=true were recorded in the manifest but their data was not found in parquet files (likely deleted before archive export). These have placeholder values (created_at=null, grand_total=0, status='archived (data unavailable)'). Display these differently in UI - grayed out with 'Data unavailable' message."
     }
   }
 ]

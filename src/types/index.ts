@@ -2,9 +2,13 @@
 export interface ArchiveJob {
   job_id: string;
   archive_day: string; // "YYYY-MM-DD"
-  status: 'PENDING' | 'EXPORTING' | 'EXPORTED' | 'FAILED' | 'DELETED';
+  status: 'PENDING' | 'EXPORTING' | 'EXPORTED' | 'FAILED' | 'DELETED' | 'APPENDING' | 'SYNCED' | 'IN_PROGRESS';
   created_at: string;
   restaurant_id?: number;
+  row_counts?: {
+    orders?: number;
+    [key: string]: any;
+  };
   // manifest_path is in job detail
 }
 

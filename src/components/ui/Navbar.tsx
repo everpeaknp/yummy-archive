@@ -41,6 +41,15 @@ export function Navbar() {
                 >
                     Order History
                 </Link>
+                <Link 
+                    href="/analytics" 
+                    className={cn(
+                        "text-sm font-medium transition-colors hover:text-blue-600",
+                        pathname === "/analytics" ? "text-blue-600" : "text-slate-600"
+                    )}
+                >
+                    Analytics
+                </Link>
             </div>
         </div>
 
