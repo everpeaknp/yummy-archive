@@ -4,23 +4,38 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { archiveApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { ArchiveJob } from '@/types';
-import { ArrowLeft, Trash2, CheckCircle, XCircle, Clock, Loader2, Database, FileText, Download } from 'lucide-react';
+import { format } from 'date-fns';
+import { 
+  ArrowLeft, Trash2, CheckCircle, XCircle, Clock, Loader2, 
+  Database, FileText, AlertCircle, ShoppingBag, Calendar,
+  ChevronDown, ChevronUp, RefreshCw
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ManifestData {
   row_counts?: Record<string, number>;
   restaurant_timezone?: string;
   total_checksum?: string;
-  datasets?: Record<string, any>;
   updated_at?: string;
   criteria?: {
     order_ids?: number[];
-    delete_order_ids?: number[] | null;  // Orders marked for deletion
+    delete_order_ids?: number[] | null;
     start_date?: string;
     end_date?: string;
   };
+}
+
+interface OrderData {
+  id: number;
+  order_id?: number;
+  created_at: string;
+  status: string;
+  channel?: string;
+  grand_total?: number;
+  total?: number;
+  net_amount?: number;
 }
 
 export default function ArchiveDetailsPage() {
@@ -32,49 +47,32 @@ export default function ArchiveDetailsPage() {
   const [manifest, setManifest] = useState<ManifestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [activeTable, setActiveTable] = useState<string>('orders');
-  const [tableData, setTableData] = useState<any[]>([]);
-  const [tableMeta, setTableMeta] = useState<any>({});
-  const [tableLoading, setTableLoading] = useState(false);
-  const [page, setPage] = useState(0);
+  const [orders, setOrders] = useState<OrderData[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [missingFile, setMissingFile] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-
-  const HIDDEN_COLUMNS = new Set(['group_id', 'customer_name', 'customer_phone']);
-
-  // Initialize selected IDs from manifest
-  useEffect(() => {
-    if (manifest?.criteria?.delete_order_ids) {
-      setSelectedIds(new Set(manifest.criteria.delete_order_ids));
-    }
-  }, [manifest]);
-
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
   const LIMIT = 50;
 
   useEffect(() => {
     if (jobId && jobId !== 'undefined') {
-      console.log('[ArchiveDetails] Loading job from URL param:', jobId);
       fetchJobDetails();
     }
   }, [jobId]);
 
   useEffect(() => {
-    // Check for complete statuses
     if (['EXPORTED', 'SYNCED'].includes(job?.status || '')) {
-      fetchTableData();
+      fetchOrders();
     }
-  }, [job, activeTable, page]);
+  }, [job, page]);
 
-  // Poll for status updates if exporting
+  // Poll for status updates if processing
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    // Poll for active statuses
     const activeStatuses = ['PENDING', 'APPENDING', 'IN_PROGRESS', 'EXPORTING'];
     if (activeStatuses.includes(job?.status || '')) {
-      interval = setInterval(() => {
-        fetchJobDetails(true); // silent update
-      }, 3000);
+      interval = setInterval(() => fetchJobDetails(true), 3000);
     }
     return () => clearInterval(interval);
   }, [job?.status]);
@@ -82,481 +80,228 @@ export default function ArchiveDetailsPage() {
   const fetchJobDetails = async (isPolling = false) => {
     if (!isPolling) setLoading(true);
     try {
-      // 1. Fetch Job Status
       const jobRes = await archiveApi.get(`/jobs/archive/${jobId}`);
-      const jobData = jobRes.data;
-      setJob(jobData);
-      
-      console.log(`[ArchiveDetails] Job status: ${jobData.status}`);
+      setJob(jobRes.data);
 
-      // 2. If EXPORTED or SYNCED, fetch Manifest
-      if (['EXPORTED', 'SYNCED'].includes(jobData.status)) {
-          try {
-             const manifestRes = await archiveApi.get(`/archive/${jobId}/manifest`);
-             setManifest(manifestRes.data);
-          } catch(e) {
-             console.warn("Manifest fetch failed (might be retrying)", e);
-          }
+      if (['EXPORTED', 'SYNCED'].includes(jobRes.data.status)) {
+        try {
+          const manifestRes = await archiveApi.get(`/archive/${jobId}/manifest`);
+          setManifest(manifestRes.data);
+        } catch {}
       }
     } catch (err: any) {
-      console.error("Failed to fetch job details", err);
-      
-      const status = err.response?.status;
-      if (status === 404) {
-        setNotFound(true);
-      } else if (status === 410 || status === 500) {
-        setMissingFile(true); 
-      }
+      if (err.response?.status === 404) setNotFound(true);
+      else if (err.response?.status === 410 || err.response?.status === 500) setMissingFile(true);
     } finally {
       if (!isPolling) setLoading(false);
     }
   };
 
-  const fetchTableData = async () => {
-    setTableLoading(true);
+  const fetchOrders = async () => {
+    setOrdersLoading(true);
     try {
       const offset = page * LIMIT;
-      const res = await archiveApi.get(`/archive/${jobId}/query/${activeTable}?limit=${LIMIT}&offset=${offset}&sort_desc=true`);
-      console.log(`[ArchiveDetails] Table ${activeTable} data (first 3):`, res.data.data?.slice(0, 3));
-      setTableData(res.data.data || []);
-      setTableMeta(res.data.meta || {});
+      const res = await archiveApi.get(`/archive/${jobId}/query/orders?limit=${LIMIT}&offset=${offset}&sort_desc=true`);
+      setOrders(res.data.data || []);
     } catch (err: any) {
       if (err.response?.status === 410 || err.response?.status === 500) {
         setMissingFile(true);
-        console.warn("Archive files missing (410/500) - Handled:", err.message);
-      } else {
-        console.error("Failed to fetch table data", err);
       }
-      setTableData([]); // clear data
+      setOrders([]);
     } finally {
-      setTableLoading(false);
+      setOrdersLoading(false);
     }
   };
 
-  const handleDelete = async () => {
-    // Priority: User Selection (Checkboxes) -> Manifest -> All
-    const currentSelection = Array.from(selectedIds);
-    const hasSelection = currentSelection.length > 0;
-    
-    // If user changed selection, we use that. If not, we fall back to manifest 
-    // BUT since we initialize selectedIds from manifest, selection IS the source of truth now.
-    
-    const confirmMsg = hasSelection
-      ? `⚠️ PERMANENT ACTION!\n\nThis will DELETE ${currentSelection.length} selected order(s) from the main database.\n\nAre you absolutely sure?`
-      : `⚠️ PERMANENT ACTION!\n\nThis will DELETE ALL archived orders from the main database.\n\nAre you absolutely sure?`;
-    
-    if (!confirm(confirmMsg)) return;
-    if (!confirm("Final confirmation: Click OK to proceed with PERMANENT deletion.")) return;
-
-    setDeleting(true);
-    try {
-      const payload: any = {
-        archive_job_id: jobId,
-        restaurant_id: job?.restaurant_id
-      };
-      
-      // If we have specific selection, send it to override backend
-      if (hasSelection) {
-        payload.order_ids = currentSelection;
-      }
-      
-      await archiveApi.post('/jobs/delete', payload);
-      
-      const successMsg = hasSelection
-        ? `Deletion complete. ${currentSelection.length} order(s) removed from the main database.`
-        : "Deletion complete. All archived orders removed from the main database.";
-      alert(successMsg);
-      router.push('/');
-    } catch (err: any) {
-      console.error("Delete failed", err);
-      if (err.response?.status === 500 || err.response?.status === 410) {
-         if (confirm("Source deletion failed (files missing on server). \n\nDo you want to force delete just THIS archive record to clean up?")) {
-            await handleDeleteJob();
-            return;
-         }
-      } else {
-        const errDetail = err.response?.data?.detail || err.message;
-        alert(`Failed to delete source data: ${errDetail}`);
-      }
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  // Delete the archive JOB itself (not source data) - for failed/stale jobs
   const handleDeleteJob = async () => {
     if (!confirm("Delete this archive job?\n\nThis will NOT delete any orders from the main database.\nIt just removes this job record so you can re-archive.")) return;
-
     setDeleting(true);
     try {
       await archiveApi.delete(`/jobs/archive/${jobId}`);
       alert("Archive job deleted. You can now re-archive this day.");
       router.push('/');
-    } catch (err) {
-      console.error("Failed to delete job", err);
-      alert("Failed to delete job. Please try again or contact support.");
+    } catch {
+      alert("Failed to delete job. Please try again.");
     } finally {
       setDeleting(false);
     }
   };
 
-  const getStatusConfig = (status: string) => {
-    const configs: Record<string, { bg: string; text: string; icon: any }> = {
-      EXPORTED: { bg: 'bg-green-100', text: 'text-green-700', icon: CheckCircle },
-      FAILED: { bg: 'bg-red-100', text: 'text-red-700', icon: XCircle },
-      PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: Clock },
-      EXPORTING: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Loader2 }
-    };
-    return configs[status] || configs.PENDING;
+  const getOrderTotal = (order: OrderData) => order.grand_total || order.total || order.net_amount || 0;
+
+  const formatTime = (dateStr: string) => {
+    try { return format(new Date(dateStr), 'HH:mm'); } 
+    catch { return '--:--'; }
   };
 
-  const tableNames = manifest?.row_counts ? Object.keys(manifest.row_counts) : ['orders', 'order_items'];
+  const formatDate = (dateStr: string) => {
+    try { return format(new Date(dateStr), 'MMM d, yyyy'); } 
+    catch { return dateStr; }
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-blue-500 mx-auto" />
-          <p className="mt-3 text-slate-500">Loading archive details...</p>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-500 mb-4" />
+        <p className="text-slate-500">Loading archive...</p>
       </div>
     );
   }
 
-  if (!job) {
+  if (!job || notFound) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center max-w-md">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <XCircle className="h-8 w-8 text-red-500" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Archive Job Not Found</h2>
-          <p className="text-slate-500 mb-6">
-            {notFound 
-              ? "This archive job doesn't exist. It may have been deleted, or the server was restarted causing data loss (common on free hosting tiers)."
-              : "Unable to load archive details. Please try again."}
-          </p>
-          <Button onClick={() => router.push('/')} className="bg-blue-600 hover:bg-blue-700 text-white">
-            Go to Dashboard
-          </Button>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <XCircle className="h-10 w-10 text-red-500" />
         </div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-3">Archive Not Found</h2>
+        <p className="text-slate-500 max-w-md mb-8">
+          This archive doesn't exist or has been deleted. It may have expired on the server.
+        </p>
+        <Button onClick={() => router.push('/')} className="bg-blue-600 hover:bg-blue-700">
+          Go to Dashboard
+        </Button>
       </div>
     );
   }
 
-  const statusConfig = getStatusConfig(job.status);
-  const StatusIcon = statusConfig.icon;
+  const isComplete = ['EXPORTED', 'SYNCED'].includes(job.status);
+  const isProcessing = ['PENDING', 'APPENDING', 'IN_PROGRESS', 'EXPORTING'].includes(job.status);
+  const isFailed = job.status === 'FAILED';
+  const ordersCount = manifest?.row_counts?.orders || orders.length;
+  const totalRevenue = orders.reduce((sum, o) => sum + getOrderTotal(o), 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 pb-24 md:pb-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-        <div>
-          <Button variant="ghost" size="sm" onClick={() => router.push('/')} className="mb-2 -ml-2 text-slate-500 hover:text-slate-900">
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back to Dashboard
-          </Button>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Archive Details</h1>
+      <div className="flex items-center gap-3">
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          onClick={() => router.push('/')} 
+          className="h-10 w-10 rounded-full p-0 shrink-0"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-xl md:text-2xl font-bold text-slate-900">
+            {job.archive_day ? formatDate(job.archive_day) : 'Archive Details'}
+          </h1>
+          <p className="text-sm text-slate-500">Archive #{jobId.slice(0, 8)}</p>
         </div>
-        
-        {['EXPORTED', 'SYNCED'].includes(job.status) && (
+        {isComplete && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => fetchJobDetails()}
+            className="h-10 w-10 rounded-full p-0"
+          >
+            <RefreshCw className="h-5 w-5" />
+          </Button>
+        )}
+      </div>
+
+      {/* Status Hero Card */}
+      <Card className="overflow-hidden border-0 shadow-lg">
+        <div className={cn(
+          "p-5 text-white",
+          isComplete && "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700",
+          isProcessing && "bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700",
+          isFailed && "bg-gradient-to-br from-red-500 via-red-600 to-rose-700",
+          missingFile && "bg-gradient-to-br from-amber-500 via-amber-600 to-orange-700"
+        )}>
+          {/* Status */}
+          <div className="flex items-center gap-4 mb-4">
+            <div className="h-14 w-14 rounded-2xl bg-white/20 flex items-center justify-center">
+              {isComplete && <CheckCircle className="h-7 w-7" />}
+              {isProcessing && <Loader2 className="h-7 w-7 animate-spin" />}
+              {isFailed && <XCircle className="h-7 w-7" />}
+              {missingFile && <AlertCircle className="h-7 w-7" />}
+            </div>
+            <div>
+              <p className="text-lg font-bold">
+                {isComplete && "Archive Complete"}
+                {isProcessing && "Archiving..."}
+                {isFailed && "Archive Failed"}
+                {missingFile && !isFailed && "Files Missing"}
+              </p>
+              <p className="text-sm opacity-80">
+                {isComplete && "All orders safely backed up"}
+                {isProcessing && "Please wait, this may take a moment"}
+                {isFailed && "Something went wrong"}
+                {missingFile && !isFailed && "Files expired or unavailable"}
+              </p>
+            </div>
+          </div>
+
+          {/* Basic Info - Always visible */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-white/10 rounded-xl p-2 md:p-3">
+              <p className="text-sm md:text-base font-bold truncate">{job.status}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Status</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-2 md:p-3">
+              <p className="text-sm md:text-base font-bold">{job.restaurant_id}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Restaurant</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-2 md:p-3">
+              <p className="text-sm md:text-base font-bold">{new Date(job.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Created</p>
+            </div>
+          </div>
+
+          {/* Stats - Only when complete */}
+          {isComplete && !missingFile && (
+            <div className="grid grid-cols-2 gap-2 text-center mt-3 pt-3 border-t border-white/20">
+              <div className="bg-white/10 rounded-xl p-2 md:p-3">
+                <p className="text-xl md:text-2xl font-bold">{ordersCount}</p>
+                <p className="text-[10px] md:text-xs opacity-80">Orders</p>
+              </div>
+              <div className="bg-white/10 rounded-xl p-2 md:p-3">
+                <p className="text-lg md:text-2xl font-bold truncate">Rs.{totalRevenue >= 1000 ? `${(totalRevenue/1000).toFixed(0)}k` : totalRevenue}</p>
+                <p className="text-[10px] md:text-xs opacity-80">Revenue</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Action Buttons */}
+      {isComplete && !missingFile && (
+        <div className="flex gap-3">
           <Button 
             onClick={() => router.push(`/archive/${jobId}/compare`)}
-            className="flex-shrink-0 bg-red-600 hover:bg-red-700 text-white"
-            size="lg"
+            className="flex-1 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
           >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Compare & Delete from Live DB
+            <Database className="h-5 w-5 mr-2" />
+            Compare with Live DB
           </Button>
-        )}
-      </div>
-
-      {/* Archive Info Cards */}
-
-      {/* Job Info Cards */}
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* Status Card */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-slate-600">Job Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <div className={cn("h-12 w-12 rounded-xl flex items-center justify-center", statusConfig.bg)}>
-                <StatusIcon className={cn("h-6 w-6", statusConfig.text, job.status === 'EXPORTING' && "animate-spin")} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className={cn("font-semibold text-lg", statusConfig.text)}>{job.status}</p>
-                  {manifest?.updated_at && new Date(manifest.updated_at).getTime() > new Date(job.created_at).getTime() + 60000 && (
-                    <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full border border-blue-200">
-                      Appended
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500">Job ID: {job.job_id?.slice(0, 8)}...</p>
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-slate-500">Created</p>
-                <p className="font-medium text-slate-900">{new Date(job.created_at).toLocaleString()}</p>
-              </div>
-              {manifest?.updated_at ? (
-                <div>
-                  <p className="text-slate-500">Last Updated</p>
-                  <p className="font-medium text-slate-900">{new Date(manifest.updated_at).toLocaleString()}</p>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-slate-500">Restaurant</p>
-                  <p className="font-medium text-slate-900">#{job.restaurant_id}</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Manifest Card */}
-        {manifest && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium text-slate-600">Manifest Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-slate-500">Timezone</p>
-                  <p className="font-medium text-slate-900">{manifest.restaurant_timezone || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Checksum</p>
-                  <p className="font-mono text-xs text-slate-900 break-all">{manifest.total_checksum?.slice(0, 16)}...</p>
-                </div>
-              </div>
-              
-              {manifest.row_counts && (
-                <div className="mt-4">
-                  <p className="text-slate-500 text-sm mb-2">Row Counts</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(manifest.row_counts).map(([table, count]) => (
-                      <div key={table} className="px-3 py-1.5 bg-slate-100 rounded-lg">
-                        <span className="text-xs text-slate-500 uppercase">{table.replace(/_/g, ' ')}</span>
-                        <p className="font-bold text-slate-900">{count as number}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Missing File Error State */}
-      {missingFile && (
-        <Card className="border-red-200 bg-red-50/50 mt-4">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-3">
-              <FileText className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-red-700">Archive File Missing or Expired (410)</h3>
-                <p className="text-sm text-red-600 mt-1">
-                  The archive files for this job are no longer available on the server. This often happens after new deployments if files were stored locally and not in S3.
-                </p>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
-                  onClick={handleDeleteJob}
-                  disabled={deleting}
-                >
-                  {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
-                  Delete This Job
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Info Banner - Direct to Compare Page */}
-      {['EXPORTED', 'SYNCED'].includes(job.status) && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-          <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-blue-800">Data Viewer shows raw archived data</p>
-            <p className="text-sm text-blue-700 mt-1">
-              To safely delete orders from the live database, use the{' '}
-              <button 
-                onClick={() => router.push(`/archive/${jobId}/compare`)}
-                className="font-semibold underline hover:text-blue-900"
-              >
-                Compare & Delete
-              </button>{' '}
-              page. It shows which orders are already deleted vs still in live DB.
-            </p>
-          </div>
         </div>
       )}
 
-      {/* Data Viewer */}
-      {['EXPORTED', 'SYNCED'].includes(job.status) && !missingFile && (
-        <Card className="overflow-hidden">
-          <CardHeader className="bg-slate-50 border-b">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <CardTitle className="text-base font-medium text-slate-900 flex items-center gap-2">
-                <Database className="h-4 w-4 text-blue-500" />
-                Data Viewer
-              </CardTitle>
-              
-              {/* Table Tabs */}
-              <div className="flex gap-1 p-1 bg-slate-200 rounded-lg overflow-x-auto">
-                {tableNames.slice(0, 6).map(table => (
-                  <button
-                    key={table}
-                    onClick={() => { setActiveTable(table); setPage(0); }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap",
-                      activeTable === table 
-                        ? "bg-white text-slate-900 shadow-sm" 
-                        : "text-slate-600 hover:text-slate-900"
-                    )}
-                  >
-                    {table.replace(/_/g, ' ').toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </CardHeader>
-          
-          <div className="overflow-x-auto">
-            {tableLoading ? (
-              <div className="p-8 text-center">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-500" />
-              </div>
-            ) : tableData.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">
-                <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                <p>No data in {activeTable}</p>
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-600 text-left">
-                  <tr>
-                    {(() => {
-                       const allKeys = Object.keys(tableData[0] || {});
-                       const visibleKeys = allKeys.filter(k => !HIDDEN_COLUMNS.has(k)).slice(0, 12);
-                       return visibleKeys.map(key => (
-                         <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
-                           {key.replace(/_/g, ' ').toUpperCase()}
-                         </th>
-                       ));
-                    })()}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(() => {
-                    const allKeys = Object.keys(tableData[0] || {});
-                    const visibleKeys = allKeys.filter(k => !HIDDEN_COLUMNS.has(k)).slice(0, 12);
-                    
-                    return tableData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50">
-                        {visibleKeys.map((key) => {
-                          const val = row[key];
-                          return (
-                            <td key={key} className="px-4 py-3 text-slate-900 max-w-[200px] truncate" title={String(val)}>
-                              {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '-')}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
-            )}
-          </div>
-          
-          {/* Pagination */}
-          <div className="flex items-center justify-between px-4 py-3 border-t bg-slate-50">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setPage(p => Math.max(0, p - 1))} 
-              disabled={page === 0}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-slate-600">Page {page + 1}</span>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setPage(p => p + 1)} 
-              disabled={tableData.length < LIMIT}
-            >
-              Next
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {/* Failed State */}
-      {job.status === 'FAILED' && (
-        <Card className="border-red-200 bg-red-50/50">
-          <CardContent className="p-6">
+      {/* Error States */}
+      {(missingFile || isFailed) && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <XCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="font-semibold text-red-700">Archive Failed</h3>
-                <p className="text-sm text-red-600 mt-1">
-                  This archive job failed to complete. Delete this job and try archiving again.
+                <p className="font-semibold text-red-800">
+                  {isFailed ? "Archive Failed" : "Archive Files Unavailable"}
                 </p>
-                <div className="flex gap-2 mt-4">
-                  <Button 
-                    variant="destructive" 
-                    size="sm"
-                    onClick={handleDeleteJob}
-                    disabled={deleting}
-                  >
-                    {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
-                    Delete This Job
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => router.push('/')}
-                  >
-                    Go Back
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stale/500 Error State - show delete option */}
-      {(['EXPORTED', 'SYNCED'].includes(job.status) && tableData.length === 0 && !tableLoading) && (
-        <Card className="border-amber-200 bg-amber-50/50 mt-4">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-3">
-              <FileText className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-amber-700">No Data Found / Potential Corruption</h3>
-                <p className="text-sm text-amber-600 mt-1">
-                  We could not read data for this archive. The files might be missing from the server (500 Error).
-                  <br/>
-                  Recommended: Delete this archive job and re-archive the day.
+                <p className="text-sm text-red-600 mt-1">
+                  {isFailed 
+                    ? "This archive job failed to complete. Delete and try again."
+                    : "The archive files are missing from the server. This happens after server restarts on free hosting."}
                 </p>
                 <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="mt-3 border-amber-300 text-amber-700 hover:bg-amber-100"
                   onClick={handleDeleteJob}
                   disabled={deleting}
+                  className="mt-3 bg-red-600 hover:bg-red-700 text-white"
+                  size="sm"
                 >
-                  {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                  {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  <Trash2 className="h-4 w-4 mr-2" />
                   Delete & Re-archive
                 </Button>
               </div>
@@ -564,6 +309,144 @@ export default function ArchiveDetailsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Orders List (Simplified Data Viewer) */}
+      {isComplete && !missingFile && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-lg font-semibold text-slate-900">Archived Orders</h2>
+            <span className="text-sm text-slate-500">{ordersCount} total</span>
+          </div>
+
+          {ordersLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-3" />
+              <p className="text-slate-500">Loading orders...</p>
+            </div>
+          ) : orders.length === 0 ? (
+            <Card className="p-8 text-center">
+              <ShoppingBag className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500">No orders in this archive</p>
+            </Card>
+          ) : (
+            <>
+              {orders.map(order => {
+                const orderId = order.id || order.order_id!;
+                const isExpanded = expandedOrderId === orderId;
+
+                return (
+                  <Card 
+                    key={orderId} 
+                    className="overflow-hidden transition-all duration-200 hover:shadow-md"
+                  >
+                    <CardContent className="p-0">
+                      {/* Order Row */}
+                      <div 
+                        className="flex items-center gap-3 p-4 cursor-pointer"
+                        onClick={() => setExpandedOrderId(isExpanded ? null : orderId)}
+                      >
+                        {/* Order Badge */}
+                        <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shrink-0 font-bold text-white">
+                          #{orderId % 1000}
+                        </div>
+
+                        {/* Order Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900">Order #{orderId}</span>
+                            <span className="px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 rounded-full">
+                              ✓ Archived
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
+                            <Clock className="h-3 w-3" />
+                            <span>{formatTime(order.created_at)}</span>
+                            <span>•</span>
+                            <span className="capitalize">{order.status}</span>
+                            {order.channel && (
+                              <>
+                                <span>•</span>
+                                <span className="capitalize">{order.channel}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Amount */}
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-slate-900">Rs. {getOrderTotal(order).toLocaleString()}</p>
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4 text-slate-400 ml-auto mt-1" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-slate-400 ml-auto mt-1" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded Details */}
+                      {isExpanded && (
+                        <div className="bg-slate-50 p-4 border-t border-slate-100">
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p className="text-slate-500 text-xs uppercase mb-1">Order ID</p>
+                              <p className="font-medium">{orderId}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-xs uppercase mb-1">Time</p>
+                              <p className="font-medium">{formatTime(order.created_at)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-xs uppercase mb-1">Status</p>
+                              <p className="font-medium capitalize">{order.status}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-xs uppercase mb-1">Channel</p>
+                              <p className="font-medium capitalize">{order.channel || 'Dine-in'}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <p className="text-slate-500 text-xs uppercase mb-1">Total Amount</p>
+                              <p className="font-bold text-lg text-emerald-600">Rs. {getOrderTotal(order).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {/* Pagination */}
+              {orders.length >= LIMIT && (
+                <div className="flex items-center justify-between pt-4">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setPage(p => Math.max(0, p - 1))} 
+                    disabled={page === 0}
+                    className="rounded-full"
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-slate-500">Page {page + 1}</span>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setPage(p => p + 1)} 
+                    disabled={orders.length < LIMIT}
+                    className="rounded-full"
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Processing State - removed duplicate spinner, it's already in hero */}
+
+
     </div>
   );
 }

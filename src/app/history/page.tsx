@@ -5,91 +5,71 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { mainApi, archiveApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
-import { Loader2, Database, Archive, List, Search, FilterX, RefreshCw, ShoppingBag } from 'lucide-react';
+import { 
+  Loader2, Database, Archive, Search, RefreshCw, ShoppingBag, 
+  Filter, X, ChevronDown, ChevronUp, Clock, Calendar
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/useDebounce';
-import { OrderRow, OrderRowData } from '@/components/History/OrderRow';
-import MultiRangeSlider from '@/components/ui/MultiRangeSlider';
+import { format } from 'date-fns';
+
+interface OrderRowData {
+  id: string | number;
+  created_at: string;
+  total: number;
+  status: string;
+  source: 'live' | 'archived' | 'error';
+  channel?: string;
+  job_id?: string;
+  error_message?: string;
+}
 
 export default function HistoryPage() {
   const { restaurantId, isAuthenticated } = useAuth();
   const router = useRouter();
 
-  // --- SIMPLIFIED STATE ---
   const [activeTab, setActiveTab] = useState<'all' | 'live' | 'archived'>('all');
   const [liveOrders, setLiveOrders] = useState<OrderRowData[]>([]);
   const [archivedOrders, setArchivedOrders] = useState<OrderRowData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounce(searchQuery, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [channelFilter, setChannelFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
-  
-  // Amount Filter State
-  const [priceRange, setPriceRange] = useState({ min: 0, max: 10000 });
-  const [globalMaxAmount, setGlobalMaxAmount] = useState(10000);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | number | null>(null);
 
-  // --- AUTH CHECK ---
   useEffect(() => {
     if (!isAuthenticated) router.push('/login');
   }, [isAuthenticated, router]);
 
-  // --- INITIAL DATA LOAD ---
   useEffect(() => {
-    if (restaurantId) {
-      loadAllData();
-    }
+    if (restaurantId) loadAllData();
   }, [restaurantId]);
 
-  // --- HELPER: Parse Orders Response ---
   const parseOrdersResponse = (raw: any): any[] => {
     if (Array.isArray(raw)) return raw;
     if (raw?.orders && Array.isArray(raw.orders)) return raw.orders;
     if (raw?.data && Array.isArray(raw.data)) return raw.data;
     if (raw?.data?.orders && Array.isArray(raw.data.orders)) return raw.data.orders;
-    if (raw?.results && Array.isArray(raw.results)) return raw.results;
-    if (raw?.data?.data && Array.isArray(raw.data.data)) return raw.data.data;
     return [];
   };
 
-  // --- MAIN LOAD FUNCTION ---
   const loadAllData = async () => {
     const isRefresh = liveOrders.length > 0 || archivedOrders.length > 0;
-    if (isRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
+    if (isRefresh) setIsRefreshing(true);
+    else setIsLoading(true);
 
     try {
-      console.log('[HistoryPage] Starting data load...');
-      
-      // Fetch live and archive in parallel
       const [liveData, archiveData] = await Promise.all([
         fetchAllLiveOrders(),
         fetchAllArchivedOrders()
       ]);
-
       setLiveOrders(liveData);
       setArchivedOrders(archiveData);
-      setLiveOrders(liveData);
-      setArchivedOrders(archiveData);
-      setLastRefreshed(new Date());
-
-      // Calculate Global Max for Slider
-      const allOrders = [...liveData, ...archiveData];
-      const maxTotal = allOrders.reduce((max, o) => Math.max(max, o.total), 1000);
-      setGlobalMaxAmount(Math.ceil(maxTotal / 100) * 100); // Round up to nearest 100
-      setPriceRange({ min: 0, max: Math.ceil(maxTotal / 100) * 100 });
-      
-      console.log('[HistoryPage] Load complete. Live:', liveData.length, 'Archived:', archiveData.length);
     } catch (err) {
       console.error('[HistoryPage] Load failed:', err);
     } finally {
@@ -98,17 +78,10 @@ export default function HistoryPage() {
     }
   };
 
-  // --- FETCH: All Live Orders ---
   const fetchAllLiveOrders = async (): Promise<OrderRowData[]> => {
     try {
-      // Fetch with large limit to get all orders
-      const url = `/orders/?restaurant_id=${restaurantId}&limit=1000`;
-      const res = await mainApi.get(url);
-      
-      const rawOrders = parseOrdersResponse(res.data);
-      console.log('[HistoryPage] Fetched', rawOrders.length, 'live orders');
-
-      return rawOrders.map(o => ({
+      const res = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&limit=1000`);
+      return parseOrdersResponse(res.data).map(o => ({
         id: o.id || o.order_id,
         created_at: o.created_at,
         total: o.total || o.net_amount || o.grand_total || 0,
@@ -116,44 +89,29 @@ export default function HistoryPage() {
         source: 'live' as const,
         channel: o.channel || 'dine-in'
       }));
-    } catch (err) {
-      console.error('[HistoryPage] Live fetch failed:', err);
-      return [];
-    }
+    } catch { return []; }
   };
 
-  // --- FETCH: All Archived Orders ---
   const fetchAllArchivedOrders = async (): Promise<OrderRowData[]> => {
     try {
-      // 1. Get archive jobs from last 3 months
       const today = new Date();
       const threeMonthsAgo = new Date(today);
       threeMonthsAgo.setMonth(today.getMonth() - 3);
-      
       const startDay = threeMonthsAgo.toISOString().split('T')[0];
-      // Extend endDay to tomorrow to cover full timezone range
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const endDay = tomorrow.toISOString().split('T')[0];
-      
-      console.log('[HistoryPage] Fetching archive jobs from', startDay, 'to', endDay);
+
       const jobsRes = await archiveApi.get(`/archive/jobs?start_day=${startDay}&end_day=${endDay}`);
-      
       const jobs = jobsRes.data?.jobs || [];
-      // Per new API: SYNCED also means archive is complete and valid
       const exportedJobs = jobs.filter((j: any) => ['EXPORTED', 'SYNCED'].includes(j.status));
-      
-      console.log('[HistoryPage] Found', exportedJobs.length, 'complete archive jobs');
 
       if (exportedJobs.length === 0) return [];
 
-      // 2. Fetch orders from each job in parallel
       const archivePromises = exportedJobs.map(async (job: any) => {
         try {
           const oRes = await archiveApi.get(`/archive/${job.job_id}/query/orders`);
-          const orders = parseOrdersResponse(oRes.data);
-          
-          return orders.map((o: any) => ({
+          return parseOrdersResponse(oRes.data).map((o: any) => ({
             id: o.id || o.order_id,
             created_at: o.created_at,
             total: o.total || o.net_amount || o.grand_total || 0,
@@ -162,222 +120,160 @@ export default function HistoryPage() {
             job_id: job.job_id,
             channel: o.channel || 'dine-in'
           }));
-        } catch (e: any) {
-          console.warn('[HistoryPage] Failed to fetch job', job.job_id, ':', e.message);
-          
-          // Return error row for this job
-          if (e.response?.status === 500) {
-            return [{
-              id: `err-${job.job_id}`,
-              created_at: job.created_at || job.start_date,
-              total: 0,
-              status: 'error',
-              source: 'error' as const,
-              job_id: job.job_id,
-              error_message: 'Archive Files Missing (500)'
-            }];
-          }
-          return [];
-        }
+        } catch { return []; }
       });
 
-      const results = await Promise.all(archivePromises);
-      const allArchived = results.flat();
-      
-      console.log('[HistoryPage] Fetched', allArchived.length, 'archived orders');
-      return allArchived;
-    } catch (err) {
-      console.error('[HistoryPage] Archive fetch failed:', err);
-      return [];
-    }
+      return (await Promise.all(archivePromises)).flat();
+    } catch { return []; }
   };
 
-  // --- COMPUTED: Filtered & Displayed Orders ---
   const displayOrders = useMemo(() => {
-    // 1. Select source based on tab
-    // 1. Select source based on tab AND deduplicate
     let rawOrders: OrderRowData[] = [];
     
     switch (activeTab) {
-      case 'live':
-        rawOrders = liveOrders;
-        break;
-      case 'archived':
-        rawOrders = archivedOrders;
-        break;
-      case 'all':
+      case 'live': rawOrders = liveOrders; break;
+      case 'archived': rawOrders = archivedOrders; break;
       default:
-        // Merge Live + Archived (Deduplicate, preferring Live)
-        // Merge Live + Archived (Deduplicate, preferring Live)
         const combined = new Map<string, OrderRowData>();
-        
-        // Add archived first
         archivedOrders.forEach(o => combined.set(String(o.id), o));
-        
-        // Overwrite/Add live (so live status takes precedence if exists in both)
         liveOrders.forEach(o => combined.set(String(o.id), o));
-        
         rawOrders = Array.from(combined.values());
-        break;
     }
     
     let orders = rawOrders;
 
-    // 2. Apply search filter (order ID)
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
-      orders = orders.filter(o => 
-        o.id.toString().includes(searchLower) ||
-        (o.source === 'error' ? false : o.status.toLowerCase().includes(searchLower))
-      );
+      orders = orders.filter(o => o.id.toString().includes(searchLower));
     }
 
-    // 3. Apply status filter
     if (statusFilter !== 'all') {
-      orders = orders.filter(o => o.source !== 'error' && o.status === statusFilter);
+      orders = orders.filter(o => o.status === statusFilter);
     }
 
-    // 4. Apply channel filter
-    if (channelFilter !== 'all') {
-      orders = orders.filter(o => o.source !== 'error' && o.channel === channelFilter);
-    }
-
-    // 5. Apply Date filter (Robust)
     if (dateFilter) {
       orders = orders.filter(o => {
-          if (o.source === 'error') return false;
-          if (o.created_at.startsWith(dateFilter)) return true;
-          // Try local date conversion check
-          try {
-             const d = new Date(o.created_at);
-             if (d.toLocaleDateString('en-CA') === dateFilter) return true;
-          } catch(e) {}
-          return false;
+        if (!o.created_at) return false;
+        return o.created_at.startsWith(dateFilter) || 
+               new Date(o.created_at).toLocaleDateString('en-CA') === dateFilter;
       });
     }
 
-    // 6. Apply Amount filter (Slider)
-    orders = orders.filter(o => o.total >= priceRange.min && o.total <= priceRange.max);
-
-    // 5. Sort by date (newest first)
     return orders.sort((a, b) => 
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-  }, [activeTab, liveOrders, archivedOrders, debouncedSearch, statusFilter, channelFilter, dateFilter, priceRange]);
+  }, [activeTab, liveOrders, archivedOrders, debouncedSearch, statusFilter, dateFilter]);
 
-  // --- COMPUTED: Stats (from FULL dataset, ignoring filters) ---
   const stats = useMemo(() => {
     const validArchived = archivedOrders.filter(o => o.source !== 'error');
-    
-    const liveSales = liveOrders.reduce((s, o) => s + o.total, 0);
-    const archivedSales = validArchived.reduce((s, o) => s + o.total, 0);
-    
     return {
       totalCount: liveOrders.length + validArchived.length,
       liveCount: liveOrders.length,
       archivedCount: validArchived.length,
-      totalSales: liveSales + archivedSales,
-      liveSales,
-      archivedSales
+      totalSales: liveOrders.reduce((s, o) => s + o.total, 0) + 
+                  validArchived.reduce((s, o) => s + o.total, 0)
     };
   }, [liveOrders, archivedOrders]);
 
-  const tabs = [
-    { key: 'all', label: 'All Orders', icon: List },
-    { key: 'live', label: 'Live Orders', icon: Database },
-    { key: 'archived', label: 'Archived', icon: Archive }
-  ] as const;
+  const formatTime = (dateStr: string) => {
+    try { return format(new Date(dateStr), 'HH:mm'); } 
+    catch { return '--:--'; }
+  };
+
+  const formatDate = (dateStr: string) => {
+    try { return format(new Date(dateStr), 'MMM d'); } 
+    catch { return dateStr; }
+  };
+
+  const getStatusColor = (status: string) => {
+    const s = status.toLowerCase();
+    if (s === 'completed' || s === 'paid') return 'bg-emerald-100 text-emerald-700';
+    if (s === 'pending' || s === 'ready') return 'bg-amber-100 text-amber-700';
+    if (s === 'cancelled') return 'bg-red-100 text-red-700';
+    return 'bg-slate-100 text-slate-600';
+  };
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
-      {/* Header & Controls */}
-      <div className="flex flex-col gap-4 sticky top-0 bg-white z-20 pb-4 pt-1 shadow-sm px-1">
-        
-        {/* Title Row */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Order History</h1>
-            <p className="text-slate-500 text-sm">
-              {lastRefreshed 
-                ? `Last updated: ${lastRefreshed.toLocaleTimeString()}`
-                : 'Loading...'
-              }
-            </p>
-          </div>
-          
-          <Button 
-            onClick={loadAllData} 
-            disabled={isRefreshing || isLoading}
-            variant="outline"
-            size="sm"
-          >
-            <RefreshCw className={cn("h-4 w-4 mr-2", (isRefreshing || isLoading) && "animate-spin")} />
-            Refresh
-          </Button>
+    <div className="space-y-4 pb-24 md:pb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-900">Order History</h1>
+          <p className="text-sm text-slate-500">{stats.totalCount} total orders</p>
         </div>
+        <Button 
+          onClick={loadAllData} 
+          disabled={isRefreshing || isLoading}
+          variant="ghost"
+          size="sm"
+          className="h-10 w-10 rounded-full p-0"
+        >
+          <RefreshCw className={cn("h-5 w-5", (isRefreshing || isLoading) && "animate-spin")} />
+        </Button>
+      </div>
 
-        {/* Stats Cards */}
-        {!isLoading && (
-          <div className="grid grid-cols-3 gap-4">
-            <Card className="bg-slate-50 border-slate-200">
-              <CardContent className="p-3 text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <ShoppingBag className="w-4 h-4 text-slate-600" />
-                  <span className="text-xs font-semibold uppercase text-slate-500">Total</span>
-                </div>
-                <p className="text-xl font-bold text-slate-900">{stats.totalCount}</p>
-                <p className="text-xs text-slate-500 mt-1">Rs. {stats.totalSales.toLocaleString()}</p>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-blue-50 border-blue-100">
-              <CardContent className="p-3 text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <Database className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-semibold uppercase text-blue-500">Live</span>
-                </div>
-                <p className="text-xl font-bold text-blue-700">{stats.liveCount}</p>
-                <p className="text-xs text-blue-600 mt-1">Rs. {stats.liveSales.toLocaleString()}</p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-purple-50 border-purple-100">
-              <CardContent className="p-3 text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <Archive className="w-4 h-4 text-purple-600" />
-                  <span className="text-xs font-semibold uppercase text-purple-500">Archived</span>
-                </div>
-                <p className="text-xl font-bold text-purple-700">{stats.archivedCount}</p>
-                <p className="text-xs text-purple-600 mt-1">Rs. {stats.archivedSales.toLocaleString()}</p>
-              </CardContent>
-            </Card>
+      {/* Hero Stats Card */}
+      <Card className="overflow-hidden border-0 shadow-lg">
+        <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 p-5 text-white">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-white/10 rounded-xl p-3">
+              <p className="text-xl md:text-2xl font-bold">{stats.totalCount}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Total Orders</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-3">
+              <p className="text-xl md:text-2xl font-bold text-blue-300">{stats.liveCount}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Live</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-3">
+              <p className="text-xl md:text-2xl font-bold text-purple-300">{stats.archivedCount}</p>
+              <p className="text-[10px] md:text-xs opacity-80">Archived</p>
+            </div>
           </div>
-        )}
+          <div className="mt-3 pt-3 border-t border-white/20 text-center">
+            <p className="text-lg md:text-xl font-bold">Rs. {stats.totalSales.toLocaleString()}</p>
+            <p className="text-xs opacity-80">Total Revenue</p>
+          </div>
+        </div>
+      </Card>
 
-        {/* Controls Row: Search + Filters + Tabs */}
-        <div className="flex flex-col sm:flex-row gap-3">
+      {/* Search & Filter Bar */}
+      <div className="space-y-3">
+        {/* Search + Date + Filter */}
+        <div className="flex gap-2 flex-wrap">
           {/* Search */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <Input 
-              placeholder="Search Order ID..." 
-              className="pl-9"
+          <div className="relative flex-1 min-w-[150px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input 
+              type="text"
+              placeholder="Search ID..." 
+              className="w-full h-10 pl-9 pr-8 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
             {searchQuery && (
               <button 
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
-                <FilterX className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
-          
-          {/* Status Filter */}
+
+          {/* Date Picker */}
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+            <input 
+              type="date"
+              className="h-10 pl-9 pr-3 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none w-[130px]"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+            />
+          </div>
+
+          {/* Status Dropdown */}
           <select 
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-black focus:ring-2 focus:ring-blue-500"
+            className="h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -387,118 +283,170 @@ export default function HistoryPage() {
             <option value="cancelled">Cancelled</option>
           </select>
 
-          {/* Channel Filter */}
-          <select 
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-black focus:ring-2 focus:ring-blue-500"
-            value={channelFilter}
-            onChange={(e) => setChannelFilter(e.target.value)}
-          >
-            <option value="all">All Channels</option>
-            <option value="dine-in">Dine-in</option>
-            <option value="takeaway">Takeaway</option>
-            <option value="delivery">Delivery</option>
-          </select>
+          {/* Clear */}
+          {(statusFilter !== 'all' || searchQuery || dateFilter) && (
+            <button
+              onClick={() => { setStatusFilter('all'); setSearchQuery(''); setDateFilter(''); }}
+              className="h-10 px-3 text-xs text-red-600 hover:bg-red-50 rounded-lg border border-red-200"
+            >
+              Clear
+            </button>
+          )}
+        </div>
 
-          {/* Date Filter */}
-          <Input 
-            type="date"
-            className="w-auto h-10"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-          />
-
-          {/* Amount Slider */}
-          <div className="flex flex-col justify-center w-full sm:w-64 px-2">
-             <div className="flex justify-between text-xs text-slate-500 mb-2">
-               <span className="font-medium">Amount</span>
-               <span>Rs. {priceRange.min} - {priceRange.max}</span>
-             </div>
-             <MultiRangeSlider
-               min={0}
-               max={globalMaxAmount}
-               minVal={priceRange.min}
-               maxVal={priceRange.max}
-               onChange={({ min, max }) => setPriceRange({ min, max })}
-             />
-          </div>
-
-          {/* Tabs */}
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            {tabs.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key as any)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
-                  activeTab === tab.key
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                )}
-              >
-                <tab.icon className="h-4 w-4" />
-                <span className="hidden md:inline">{tab.label}</span>
-              </button>
-            ))}
-          </div>
+        {/* Source Tabs */}
+        <div className="flex bg-slate-100 p-1 rounded-xl">
+          {[
+            { key: 'all', label: 'All', count: stats.totalCount, icon: ShoppingBag },
+            { key: 'live', label: 'Live', count: stats.liveCount, icon: Database },
+            { key: 'archived', label: 'Archive', count: stats.archivedCount, icon: Archive }
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as any)}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-xs md:text-sm font-medium transition-all",
+                activeTab === tab.key
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <tab.icon className="h-3.5 w-3.5 md:h-4 md:w-4 shrink-0" />
+              <span className="truncate">{tab.label}</span>
+              <span className={cn(
+                "text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full shrink-0",
+                activeTab === tab.key ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-600"
+              )}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Table Content */}
-      <Card className="flex-1 overflow-hidden flex flex-col min-h-[500px]">
-        <CardContent className="p-0 flex-1 overflow-y-auto relative">
-          {/* Loading State */}
-          {isLoading && (
-            <div className="flex flex-col items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-2" />
-              <p className="text-slate-500">Loading order history...</p>
-            </div>
-          )}
+      {/* Orders List */}
+      <div className="space-y-3">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-3" />
+            <p className="text-slate-500">Loading orders...</p>
+          </div>
+        ) : displayOrders.length === 0 ? (
+          <Card className="p-8 text-center">
+            <ShoppingBag className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No orders found</p>
+            {(searchQuery || statusFilter !== 'all') && (
+              <p className="text-sm text-slate-400 mt-1">Try adjusting your filters</p>
+            )}
+          </Card>
+        ) : (
+          displayOrders.slice(0, 100).map(order => {
+            const isExpanded = expandedOrderId === order.id;
+            const isLive = order.source === 'live';
 
-          {/* Table */}
-          {!isLoading && (
-            <>
-              {/* Table Header */}
-              <div className="grid grid-cols-1 divide-y sticky top-0 bg-slate-50 z-10 border-b font-medium text-xs text-slate-500 uppercase shadow-sm">
-                <div className="flex">
-                  <div className="px-4 py-3 flex-1 max-w-[100px]">ID</div>
-                  <div className="px-4 py-3 flex-1">Date</div>
-                  <div className="px-4 py-3 flex-1">Total</div>
-                  <div className="px-4 py-3 flex-1">Status</div>
-                  <div className="px-4 py-3 flex-1">Source</div>
-                </div>
-              </div>
+            return (
+              <Card 
+                key={`${order.source}-${order.id}`} 
+                className="overflow-hidden transition-all duration-200 hover:shadow-md"
+              >
+                <CardContent className="p-0">
+                  {/* Order Row */}
+                  <div 
+                    className="flex items-center gap-2 md:gap-3 p-3 md:p-4 cursor-pointer"
+                    onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                  >
+                    {/* Order Badge */}
+                    <div className={cn(
+                      "h-10 w-10 md:h-11 md:w-11 rounded-xl flex items-center justify-center shrink-0 font-bold text-white text-xs md:text-sm",
+                      isLive 
+                        ? "bg-gradient-to-br from-blue-400 to-blue-600" 
+                        : "bg-gradient-to-br from-purple-400 to-purple-600"
+                    )}>
+                      #{Number(order.id) % 1000}
+                    </div>
 
-              {/* Table Body */}
-              <table className="w-full">
-                <tbody className="divide-y divide-slate-100">
-                  {displayOrders.map((order, idx) => (
-                    <OrderRow key={`${order.source}-${order.id}-${idx}`} order={order} />
-                  ))}
-                </tbody>
-              </table>
+                    {/* Order Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900 text-sm md:text-base">Order #{order.id}</span>
+                        <span className={cn(
+                          "px-2 py-0.5 text-[10px] font-medium rounded-full",
+                          getStatusColor(order.status)
+                        )}>
+                          {order.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs md:text-sm text-slate-500 mt-0.5">
+                        <Calendar className="h-3 w-3" />
+                        <span>{formatDate(order.created_at)}</span>
+                        <Clock className="h-3 w-3 ml-1" />
+                        <span>{formatTime(order.created_at)}</span>
+                        <span className={cn(
+                          "ml-1 px-1.5 py-0.5 text-[10px] rounded",
+                          isLive ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"
+                        )}>
+                          {isLive ? 'Live' : 'Archived'}
+                        </span>
+                      </div>
+                    </div>
 
-              {/* Empty State */}
-              {displayOrders.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                  <List className="h-12 w-12 mb-2 opacity-20" />
-                  <p>No orders found</p>
-                  <p>No orders found</p>
-                  {(searchQuery || statusFilter !== 'all' || channelFilter !== 'all' || dateFilter || priceRange.min > 0 || priceRange.max < globalMaxAmount) && (
-                    <p className="text-xs mt-1">Try adjusting your filters</p>
+                    {/* Amount & Expand */}
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-slate-900 text-sm md:text-base">Rs. {order.total.toLocaleString()}</p>
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4 text-slate-400 ml-auto mt-1" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-slate-400 ml-auto mt-1" />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="bg-slate-50 p-4 border-t border-slate-100">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Order ID</p>
+                          <p className="font-medium">{order.id}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Date & Time</p>
+                          <p className="font-medium">{formatDate(order.created_at)} {formatTime(order.created_at)}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Status</p>
+                          <p className="font-medium capitalize">{order.status}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Channel</p>
+                          <p className="font-medium capitalize">{order.channel || 'Dine-in'}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Source</p>
+                          <p className={cn("font-medium", isLive ? "text-blue-600" : "text-purple-600")}>
+                            {isLive ? '● Live Database' : '● Archive Storage'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 text-xs uppercase mb-1">Total</p>
+                          <p className="font-bold text-lg">Rs. {order.total.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </div>
-              )}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
 
-              {/* Result Count */}
-              {displayOrders.length > 0 && (
-                <div className="text-center p-4 text-xs text-slate-400 border-t">
-                  Showing {displayOrders.length} of {stats.totalCount} orders
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+        {/* Load More Indicator */}
+        {displayOrders.length > 100 && (
+          <div className="text-center py-4 text-sm text-slate-500">
+            Showing first 100 of {displayOrders.length} orders
+          </div>
+        )}
+      </div>
     </div>
   );
 }
