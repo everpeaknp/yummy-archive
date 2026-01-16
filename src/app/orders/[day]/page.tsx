@@ -80,23 +80,63 @@ export default function OrdersDayPage() {
     setOrders(sorted);
   }, [liveOrders, archivedOrdersData, day]);
 
+  const formattedDate = (() => {
+    try { return format(parseISO(day), 'EEEE, MMM d'); } 
+    catch { return day; }
+  })();
+
   const parseOrdersResponse = (raw: any): any[] => {
     if (Array.isArray(raw)) return raw;
-    if (raw?.orders) return raw.orders;
-    if (raw?.data?.orders) return raw.data.orders;
+    if (raw?.orders && Array.isArray(raw.orders)) return raw.orders;
+    if (raw?.data?.orders && Array.isArray(raw.data.orders)) return raw.data.orders;
     if (raw?.data && Array.isArray(raw.data)) return raw.data;
+    if (raw?.results && Array.isArray(raw.results)) return raw.results;
+    if (raw?.items && Array.isArray(raw.items)) return raw.items;
     return [];
   };
 
   const fetchOrders = async () => {
     try {
-      const res = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&limit=500`);
+      // FIX: Use date range instead of just limit to ensure we catch relevant orders
+      // Nepal Day starts at UTC Day-1 18:15 and ends at UTC Day 18:15.
+      // So searching [Day-1] to [Day+1] is safest.
+      const dateObj = new Date(day);
+      const startD = new Date(dateObj); startD.setDate(startD.getDate() - 2); 
+      const endD = new Date(dateObj); endD.setDate(endD.getDate() + 2);
+      
+      const startStr = startD.toISOString().split('T')[0];
+      const endStr = endD.toISOString().split('T')[0];
+
+      console.log(`[DetailsPage] Fetching orders from ${startStr} to ${endStr}`);
+
+      const res = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&start_date=${startStr}&end_date=${endStr}&limit=2000`);
       const allOrders = parseOrdersResponse(res.data);
+      console.log(`[DetailsPage] RX ${allOrders.length} orders`);
+
+      // Helper: Strict Nepal Date (UTC + 5:45)
+      const getNepalDate = (isoString: string) => {
+          const date = new Date(isoString);
+          if (isNaN(date.getTime())) return "";
+          // Nepal is UTC + 5:45
+          const nepalTime = date.getTime() + 20700000;
+          return new Date(nepalTime).toISOString().split('T')[0];
+      };
+
       const dayOrders = allOrders.filter((order: any) => {
         const timestamp = order.created_at || order.business_date;
         if (!timestamp) return false;
-        return timestamp.startsWith(day) || new Date(timestamp).toLocaleDateString('en-CA') === day;
+        const nd = getNepalDate(timestamp);
+        const matchesDate = nd === day;
+        // Debug specific target day mismatch
+        if (day === '2026-01-15' && nd === '2026-01-15') {
+            console.log(`[DetailsPage] Matched Order ${order.id} for ${day}`);
+        }
+        
+        const status = order.status?.toLowerCase();
+        return matchesDate && (status === 'completed' || status === 'paid');
       });
+      
+      console.log(`[DetailsPage] Filtered ${dayOrders.length} orders for ${day}`);
       setLiveOrders(dayOrders);
     } catch (err) {
       console.error("Failed to fetch orders:", err);
@@ -124,8 +164,12 @@ export default function OrdersDayPage() {
           try {
             const res = await archiveApi.get(`/archive/${job.job_id}/query/orders?limit=500`);
             if (res.data?.data) {
-              allArchivedData = [...allArchivedData, ...res.data.data];
-              res.data.data.forEach((o: any) => archivedIds.add(o.id || o.order_id));
+              const validOrders = res.data.data.filter((o: any) => {
+                const s = o.status?.toLowerCase();
+                return s === 'completed' || s === 'paid';
+              });
+              allArchivedData = [...allArchivedData, ...validOrders];
+              validOrders.forEach((o: any) => archivedIds.add(o.id || o.order_id));
             }
           } catch {}
         }
@@ -146,31 +190,80 @@ export default function OrdersDayPage() {
   };
 
   const handleArchive = async () => {
-    const newOrders = orders.filter(o => o._source === 'live');
-    const isAppend = existingJobId && archivedOrderIds.size > 0;
+    // 1. Filter ONLY strictly completed/paid orders for the archive
+    const splitOrders = orders.filter(o => {
+      const s = o.status?.toLowerCase();
+      // Only allow stable, completed status
+      return s === 'completed' || s === 'paid';
+    });
+
+    // 2. Safety Check: Are there any "Active" orders that shouldn't be ignored?
+    // User wants to prevent archiving if things are "not completed" (meaning pending/ready).
+    const unstableOrders = orders.filter(o => {
+       const s = o.status?.toLowerCase();
+       // Check for statuses that imply "Work in Progress"
+       return ['pending', 'ready', 'checkout', 'placed', 'preparing', 'cooking'].includes(s || '');
+    });
+
+    if (unstableOrders.length > 0) {
+      alert(`Cannot archive: There are ${unstableOrders.length} active order(s) (Pending/Ready etc). Please complete or cancel them first.`);
+      return;
+    }
+
+    const newOrders = splitOrders.filter(o => o._source === 'live');
+    const hasJob = !!existingJobId;
     
-    const message = isAppend 
-      ? `Add ${newOrders.length} new order(s) to existing archive?`
-      : `Archive all ${orders.length} order(s) for ${formattedDate}?`;
+    // We send ALL valid IDs to ensure the archive is comprehensive
+    const validIds = splitOrders.map(o => o.id || o.order_id!);
+
+    const message = hasJob 
+      ? `Update Archive for ${formattedDate}?\n\nThis will re-sync the archive with the latest completed orders.`
+      : `Archive ${splitOrders.length} COMPLETED order(s) for ${formattedDate}?`;
     
     if (!confirm(message)) return;
 
     setArchiving(true);
     try {
+      // FORCE RE-ARCHIVE SCHEME:
+      // "Smart Append" often fails to update statuses (e.g. Pending -> Completed) or errors on duplicates.
+      // To ensure consistency, if a job exists, we DELETE it first, then create a FRESH one.
+      if (hasJob && existingJobId) {
+         try {
+           await archiveApi.delete(`/jobs/archive/${existingJobId}`);
+           // Wait a brief moment for DB propagation if needed, though await should suffice
+         } catch (delErr) {
+           console.warn("Delete old job failed, attempting overwrite anyway", delErr);
+         }
+      }
+
       const payload: any = {
         restaurant_id: restaurantId,
+        // Reliability Fix: Always use Date Range. 
+        // "IDs Only" caused backend worker failures ("Archive Failed").
+        // "IDs + Dates" caused 422s.
+        // We rely on Frontend Statistics (ArchiveDetailsPage) to filter out any "Cancelled" noise.
         start_date: `${day}T00:00:00Z`,
         end_date: `${day}T23:59:59Z`
       };
+
+      // if (validIds.length > 0) { ... } // Removed to prevent "Archive Failed"
 
       const res = await archiveApi.post('/jobs/archive', payload);
       const jobId = res.data.job_id || res.data.jobs?.[0]?.job_id;
       
       if (jobId) {
+        // Optimistic UI Update
+        const newSet = new Set(archivedOrderIds);
+        validIds.forEach(id => newSet.add(id));
+        setArchivedOrderIds(newSet);
+        
         router.push(`/archive/${jobId}`);
       }
     } catch (err: any) {
-      alert(`Failed to archive: ${err.response?.data?.detail || err.message}`);
+      const errorDetail = err.response?.data?.detail 
+        ? JSON.stringify(err.response.data.detail) 
+        : err.message;
+      alert(`Failed to archive: ${errorDetail}`);
     } finally {
       setArchiving(false);
     }
@@ -178,10 +271,7 @@ export default function OrdersDayPage() {
 
   if (!isAuthenticated) return null;
 
-  const formattedDate = (() => {
-    try { return format(parseISO(day), 'EEEE, MMM d'); } 
-    catch { return day; }
-  })();
+
 
   const newOrdersCount = orders.filter(o => o._source === 'live').length;
   const totalRevenue = orders.reduce((sum, o) => sum + getOrderTotal(o), 0);

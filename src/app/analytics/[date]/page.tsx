@@ -72,13 +72,22 @@ export default function AnalyticsDayPage() {
     }
   }, [restaurantId, day]);
 
+  const parseOrdersResponse = (raw: any): any[] => {
+    if (Array.isArray(raw)) return raw;
+    if (raw?.orders) return raw.orders;
+    if (raw?.data?.orders) return raw.data.orders;
+    if (raw?.data && Array.isArray(raw.data)) return raw.data;
+    return [];
+  };
+
   const fetchDayData = async () => {
     try {
         // 1. Fetch Live Orders List (Summary)
         const liveRes = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&limit=500`);
         const liveOrders = parseOrdersResponse(liveRes.data).filter((o: any) => {
              const t = o.created_at || o.business_date;
-             return t && (t.startsWith(day) || new Date(t).toLocaleDateString('en-CA') === day);
+             const s = o.status?.toLowerCase();
+             return t && (t.startsWith(day) || new Date(t).toLocaleDateString('en-CA') === day) && (s === 'completed' || s === 'paid');
         });
 
         // 2. Fetch Archive Data (Orders + Items)
@@ -93,7 +102,10 @@ export default function AnalyticsDayPage() {
                 // Fetch Orders Table
                 const ordersQuery = await archiveApi.get(`/archive/${job.job_id}/query/orders?limit=1000`);
                 if (ordersQuery.data?.data) {
-                    archivedOrders = ordersQuery.data.data;
+                    archivedOrders = ordersQuery.data.data.filter((o: any) => {
+                        const s = o.status?.toLowerCase();
+                        return s === 'completed' || s === 'paid';
+                    });
                 }
 
                 // Fetch Order Items Table
@@ -192,13 +204,6 @@ export default function AnalyticsDayPage() {
       }
   };
 
-  const parseOrdersResponse = (raw: any): any[] => {
-    if (Array.isArray(raw)) return raw;
-    if (raw?.orders) return raw.orders;
-    if (raw?.data?.orders) return raw.data.orders;
-    if (raw?.data && Array.isArray(raw.data)) return raw.data;
-    return [];
-  };
 
   const formattedDate = format(parseISO(day), 'EEEE, MMMM d, yyyy');
   const totalRevenue = orders.reduce((sum, o) => sum + (o.grand_total || o.total || 0), 0);

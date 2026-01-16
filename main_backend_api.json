@@ -160,8 +160,24 @@
       "name": "🏪 Restaurant",
       "item": [
         {
-          "name": "Get Restaurant by User",
-          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/by-user" }
+          "name": "List User's Restaurants",
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/me/restaurants" }
+        },
+        {
+          "name": "Add Admin to Restaurant",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/restaurant/{{restaurantId}}/admins",
+            "body": { "mode": "raw", "raw": "{\"email\": \"newadmin@example.com\", \"role\": \"manager\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Remove Admin from Restaurant",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/restaurant/{{restaurantId}}/admins/1" }
+        },
+        {
+          "name": "List Restaurant Admins",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurant/{{restaurantId}}/admins" }
         },
         {
           "name": "Create Restaurant",
@@ -210,15 +226,15 @@
         },
         {
           "name": "List Orders",
-          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "List Orders Summary",
-          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}/summary" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/summary?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "List Active Orders",
-          "request": { "method": "GET", "url": "{{baseUrl}}/orders/restaurant/{{restaurantId}}/active" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/active?restaurant_id={{restaurantId}}" }
         },
         {
           "name": "Get Orders by Table",
@@ -299,6 +315,42 @@
             "url": "{{baseUrl}}/orders/1/cancel",
             "body": { "mode": "raw", "raw": "{\"reason\": \"Customer request\"}", "options": { "raw": { "language": "json" } } }
           }
+        },
+        {
+          "name": "Update Items by Channel",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/orders/1/items/by-channel",
+            "body": { "mode": "raw", "raw": "{\"channel\": \"kitchen\", \"items\": [{\"menu_item_id\": 1, \"quantity\": 1}]}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Activate Reservation",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/orders/1/activate",
+             "body": { "mode": "raw", "raw": "{\"table_id\": 2}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Order Events",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/1/events" }
+        },
+        {
+          "name": "Get Order Bill",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/1/bill" }
+        },
+        {
+          "name": "Force Mark Served",
+          "request": {
+             "method": "POST",
+             "url": "{{baseUrl}}/orders/1/force-served",
+             "body": { "mode": "raw", "raw": "{\"reason\": \"Manual override\", \"pin\": \"1234\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Table Reservations",
+          "request": { "method": "GET", "url": "{{baseUrl}}/orders/tables/1/reservations?restaurant_id={{restaurantId}}" }
         }
       ]
     },
@@ -776,11 +828,31 @@
         },
         {
           "name": "Generate Snapshot Preview",
-          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/preview?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/generate-snapshot?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
         },
         {
           "name": "Validate Can Close",
-          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/validate?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/validate-close?restaurant_id={{restaurantId}}&business_date=2026-01-13" }
+        },
+        {
+          "name": "Cancel Day Close",
+          "request": { "method": "POST", "url": "{{baseUrl}}/day-closes/1/cancel" }
+        },
+        {
+          "name": "Reopen Day Close",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/day-closes/1/reopen",
+             "body": { "mode": "raw", "raw": "{\"reopen_reason\": \"Forgot to add expense\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Day Close Audit Log",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/1/audit-log" }
+        },
+        {
+          "name": "Get Day Close Snapshot",
+          "request": { "method": "GET", "url": "{{baseUrl}}/day-closes/1/snapshot" }
         },
         {
           "name": "Initiate Day Close",
@@ -1145,6 +1217,374 @@
         {
           "name": "Basic Metrics (Admin)",
           "request": { "method": "GET", "url": "{{baseUrl}}/metrics/basic" }
+        }
+      ]
+    },
+    {
+      "name": "📈 Sales",
+      "item": [
+        {
+          "name": "List Sales (Aggregated)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/sales?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Sales Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/sales/report?restaurant_id={{restaurantId}}" }
+        }
+      ]
+    },
+    {
+      "name": "📜 History",
+      "item": [
+        {
+          "name": "Get Audit Logs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/audit-logs?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Audit Log Details",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/audit-logs/1" }
+        },
+        {
+          "name": "Get Audit Logs by Actor",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/audit/actor/1" }
+        },
+        {
+          "name": "Get Audit Logs by Restaurant",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/audit/restaurants/{{restaurantId}}" }
+        },
+        {
+          "name": "Get Entity Audit Logs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/audit/order/1" }
+        },
+        {
+          "name": "Get Menu History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/menu/1" }
+        },
+        {
+          "name": "Get Menu Price History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/menu/1/price" }
+        },
+        {
+          "name": "Get Config History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/config/tax/1" }
+        },
+        {
+          "name": "Get User Activity",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/activity/user/1" }
+        },
+        {
+          "name": "Get Activity by Action",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/activity/action/login" }
+        },
+        {
+          "name": "Get Activity by Date",
+          "request": { "method": "GET", "url": "{{baseUrl}}/history/activity?start_date=2026-01-01&end_date=2026-01-31" }
+        }
+      ]
+    },
+    {
+      "name": "🗄️ Archival",
+      "item": [
+        {
+          "name": "Archive Order Events",
+          "request": {
+             "method": "POST",
+             "url": "{{baseUrl}}/archival/order-events?months=12"
+          }
+        },
+        {
+          "name": "Archive Menu History",
+          "request": {
+             "method": "POST",
+             "url": "{{baseUrl}}/archival/menu-history?months=12"
+          }
+        },
+        {
+          "name": "Archive Config History",
+          "request": {
+             "method": "POST",
+             "url": "{{baseUrl}}/archival/config-history?months=24"
+          }
+        },
+        {
+          "name": "Archive User Activity",
+          "request": {
+             "method": "POST",
+             "url": "{{baseUrl}}/archival/user-activity?months=3"
+          }
+        },
+        {
+          "name": "Run Full Archival",
+          "request": { "method": "POST", "url": "{{baseUrl}}/archival/full" }
+        }
+      ]
+    },
+    {
+      "name": "🛍️ General Purchases",
+      "item": [
+        {
+          "name": "List General Purchases",
+          "request": { "method": "GET", "url": "{{baseUrl}}/general-purchases?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Create General Purchase",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/general-purchases",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"supplier_id\": 1, \"items\": [{\"name\": \"Napkins\", \"quantity\": 100, \"unit_price\": 2}], \"total_amount\": 200}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get General Purchase",
+          "request": { "method": "GET", "url": "{{baseUrl}}/general-purchases/1" }
+        },
+        {
+          "name": "Update General Purchase",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/general-purchases/1",
+            "body": { "mode": "raw", "raw": "{\"notes\": \"Updated notes\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Receive Purchase",
+          "request": { "method": "POST", "url": "{{baseUrl}}/general-purchases/1/receive" }
+        },
+        {
+          "name": "Cancel Purchase",
+          "request": { "method": "POST", "url": "{{baseUrl}}/general-purchases/1/cancel" }
+        },
+        {
+          "name": "Return Purchase",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/general-purchases/1/return",
+            "body": { "mode": "raw", "raw": "{\"reason\": \"Damaged goods\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Purchase",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/general-purchases/1" }
+        },
+        {
+          "name": "List General Awaiting Payments",
+          "request": { "method": "GET", "url": "{{baseUrl}}/awaiting-payments/general?restaurant_id={{restaurantId}}" }
+        }
+      ]
+    },
+    {
+      "name": "⏳ Awaiting Payments",
+      "item": [
+        {
+          "name": "List Awaiting Payments",
+          "request": { "method": "GET", "url": "{{baseUrl}}/awaiting-payments?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Awaiting Payment",
+          "request": { "method": "GET", "url": "{{baseUrl}}/awaiting-payments/1" }
+        },
+        {
+          "name": "Reject Payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/awaiting-payments/1/reject",
+             "body": { "mode": "raw", "raw": "{\"note\": \"Incorrect amount\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Mark Paid",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/awaiting-payments/1/mark-paid",
+            "body": { "mode": "raw", "raw": "{\"paid_amount\": 500, \"payment_method\": \"cash\"}", "options": { "raw": { "language": "json" } } }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🖨️ Printers",
+      "item": [
+        {
+          "name": "List Printers",
+          "request": { "method": "GET", "url": "{{baseUrl}}/printers?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Create Printer",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/printers",
+            "body": { "mode": "raw", "raw": "{\"restaurant_id\": 1, \"name\": \"Kitchen Printer\", \"ip_address\": \"192.168.1.100\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Set Default Printer",
+          "request": { "method": "PATCH", "url": "{{baseUrl}}/printers/1/default?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Delete Printer",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/printers/1?restaurant_id={{restaurantId}}" }
+        }
+      ]
+    },
+    {
+      "name": "🪑 Restaurant Tables",
+      "item": [
+        {
+          "name": "Create Table Type",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/restaurants/table-types/{{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"name\": \"VIP\", \"description\": \"VIP Area\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Table Types",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/table-types/{{restaurantId}}" }
+        },
+        {
+          "name": "Update Table Type",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/restaurants/table-types/1",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Premium VIP\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Table Type",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/restaurants/table-types/1" }
+        },
+        {
+          "name": "Create Table",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/restaurants/tables/{{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"table_name\": \"T1\", \"capacity\": 4, \"table_type_id\": 1}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Update Table",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/restaurants/tables/1",
+            "body": { "mode": "raw", "raw": "{\"capacity\": 6}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Get Table",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/tables/single/1" }
+        },
+        {
+          "name": "List All Tables",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/tables/all/{{restaurantId}}" }
+        },
+        {
+          "name": "List Table Summaries",
+          "request": { "method": "GET", "url": "{{baseUrl}}/restaurants/tables/summary/{{restaurantId}}" }
+        },
+        {
+          "name": "Free Table",
+          "request": { "method": "POST", "url": "{{baseUrl}}/restaurants/tables/1/free" }
+        },
+        {
+          "name": "Delete Table",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/restaurants/tables/1" }
+        }
+      ]
+    },
+    {
+      "name": "📱 Device Tokens",
+      "item": [
+        {
+          "name": "Register Device Token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/device-tokens",
+            "body": { "mode": "raw", "raw": "{\"token\": \"fcm_token_123\", \"platform\": \"android\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Delete Device Token",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/device-tokens/fcm_token_123" }
+        }
+      ]
+    },
+    {
+      "name": "⚙️ Internal Jobs",
+      "item": [
+        {
+          "name": "Run KOT Timeout Reminders",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/internal/jobs/kots/timeout-reminders",
+            "header": [{ "key": "X-CRON-KEY", "value": "<CRON_KEY>" }]
+          }
+        },
+        {
+          "name": "Run Notification Cleanup",
+          "request": {
+            "method": "POST",
+             "url": "{{baseUrl}}/internal/jobs/notifications/cleanup",
+             "header": [{ "key": "X-CRON-KEY", "value": "<CRON_KEY>" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 Admin Dashboard V2",
+      "item": [
+        {
+          "name": "Get Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/admin/dashboard/v2?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Dashboard Delta",
+          "request": { "method": "GET", "url": "{{baseUrl}}/admin/dashboard/v2/delta?restaurant_id={{restaurantId}}&since=2026-01-15T00:00:00Z" }
+        }
+      ]
+    },
+    {
+      "name": "📲 Payments - Fonepay",
+      "item": [
+        {
+          "name": "Generate QR",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/payments/fonepay/qr",
+            "body": { "mode": "raw", "raw": "{\"order_id\": 1, \"r1\": \"note1\", \"r2\": \"note2\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Check Status",
+          "request": { "method": "GET", "url": "{{baseUrl}}/payments/fonepay/PRN123/status" }
+        }
+      ]
+    },
+    {
+      "name": "💰 General Awaiting Payments",
+      "item": [
+        {
+          "name": "List Awaiting Payments",
+          "request": { "method": "GET", "url": "{{baseUrl}}/general/awaiting-payments?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Get Awaiting Payment",
+          "request": { "method": "GET", "url": "{{baseUrl}}/general/awaiting-payments/1?restaurant_id={{restaurantId}}" }
+        },
+        {
+          "name": "Reject Payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/general/awaiting-payments/1/reject?restaurant_id={{restaurantId}}",
+             "body": { "mode": "raw", "raw": "{\"note\": \"Rejected reason\"}", "options": { "raw": { "language": "json" } } }
+          }
+        },
+        {
+          "name": "Mark Paid",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/general/awaiting-payments/1/mark-paid?restaurant_id={{restaurantId}}",
+            "body": { "mode": "raw", "raw": "{\"paid_amount\": 100, \"payment_method\": \"cash\"}", "options": { "raw": { "language": "json" } } }
+          }
         }
       ]
     }

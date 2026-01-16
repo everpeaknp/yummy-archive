@@ -81,14 +81,19 @@ export default function HistoryPage() {
   const fetchAllLiveOrders = async (): Promise<OrderRowData[]> => {
     try {
       const res = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&limit=1000`);
-      return parseOrdersResponse(res.data).map(o => ({
-        id: o.id || o.order_id,
-        created_at: o.created_at,
-        total: o.total || o.net_amount || o.grand_total || 0,
-        status: o.status,
-        source: 'live' as const,
-        channel: o.channel || 'dine-in'
-      }));
+      return parseOrdersResponse(res.data)
+        .filter((o: any) => {
+          const s = o.status?.toLowerCase();
+          return s === 'completed' || s === 'paid';
+        })
+        .map(o => ({
+          id: o.id || o.order_id,
+          created_at: o.created_at,
+          total: o.total || o.net_amount || o.grand_total || 0,
+          status: o.status,
+          source: 'live' as const,
+          channel: o.channel || 'dine-in'
+        }));
     } catch { return []; }
   };
 
@@ -111,15 +116,20 @@ export default function HistoryPage() {
       const archivePromises = exportedJobs.map(async (job: any) => {
         try {
           const oRes = await archiveApi.get(`/archive/${job.job_id}/query/orders`);
-          return parseOrdersResponse(oRes.data).map((o: any) => ({
-            id: o.id || o.order_id,
-            created_at: o.created_at,
-            total: o.total || o.net_amount || o.grand_total || 0,
-            status: o.status || 'archived',
-            source: 'archived' as const,
-            job_id: job.job_id,
-            channel: o.channel || 'dine-in'
-          }));
+          return parseOrdersResponse(oRes.data)
+            .filter((o: any) => {
+              const s = o.status?.toLowerCase();
+              return s === 'completed' || s === 'paid';
+            })
+            .map((o: any) => ({
+              id: o.id || o.order_id,
+              created_at: o.created_at,
+              total: o.total || o.net_amount || o.grand_total || 0,
+              status: o.status || 'archived',
+              source: 'archived' as const,
+              job_id: job.job_id,
+              channel: o.channel || 'dine-in'
+            }));
         } catch { return []; }
       });
 

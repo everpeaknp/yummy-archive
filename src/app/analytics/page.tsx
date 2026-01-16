@@ -88,7 +88,11 @@ export default function AnalyticsPage() {
       }
 
       if (jobsRes.status === 'fulfilled') {
-        setArchiveJobs(jobsRes.value.data?.jobs || []);
+        const jobs = jobsRes.value.data?.jobs || [];
+        setArchiveJobs(jobs);
+        // Kick off deeper stats fetch for accuracy
+        // Await this so we don't flash "Live Data" (12.5k) before "Archive Data" (13.5k) arrives
+        await fetchArchiveStats(jobs);
       }
     } catch (err) {
       console.error('Failed to fetch analytics:', err);
@@ -98,18 +102,82 @@ export default function AnalyticsPage() {
     }
   };
 
+  const [archiveStats, setArchiveStats] = useState<Record<string, { revenue: number, orders: number }>>({});
+
+  const fetchArchiveStats = async (jobs: any[]) => {
+    // Filter for valid completed jobs in the current date range
+    const validJobs = jobs.filter(j => ['EXPORTED', 'SYNCED'].includes(j.status));
+    
+    // If no valid jobs, we can return early (loading will be false in finally block)
+    if (validJobs.length === 0) return;
+
+    try {
+      // Parallel fetch of ORDER LISTS to calculate TRUE "Completed" totals.
+      // We cannot rely on backend 'summary.archived_total' because it includes "Cancelled" orders.
+      // We must fetch the actual rows and filter client-side, just like the Detail page.
+      const results = await Promise.allSettled(
+        validJobs.map(async (job) => {
+             // Fetch up to 2000 orders (reasonable max for a day) to get accurate sum
+             const res = await archiveApi.get(`/archive/${job.job_id}/query/orders?limit=2000`);
+             const allOrders = res.data?.data || [];
+             
+             // Strict Filter: Only count COMPLETED/PAID orders
+             const validOrders = allOrders.filter((o: any) => {
+                 const s = o.status?.toLowerCase();
+                 return s === 'completed' || s === 'paid';
+             });
+
+             const dayRevenue = validOrders.reduce((sum: number, o: any) => sum + (o.grand_total || o.total || 0), 0);
+             
+             return {
+                 date: job.archive_day,
+                 id: job.job_id,
+                 total: dayRevenue,
+                 count: validOrders.length
+             };
+        })
+      );
+
+      const statsMap: Record<string, { revenue: number, orders: number }> = {};
+      results.forEach(res => {
+        if (res.status === 'fulfilled' && res.value) {
+          statsMap[res.value.date] = {
+            revenue: res.value.total || 0,
+            orders: res.value.count || 0
+          };
+        }
+      });
+      
+      setArchiveStats(prev => ({ ...prev, ...statsMap }));
+    } catch (err) {
+      console.warn("Failed to fetch detailed archive stats", err);
+    }
+  };
+
   // Calculate insights
   const insights = useMemo(() => {
+    // Helper to get Best Data (Archive > Live)
+    const getBestStat = (d: any) => {
+       const dateStr = d.date;
+       const arch = archiveStats[dateStr];
+       if (arch) return { revenue: arch.revenue, orders: arch.orders };
+       return { revenue: d.revenue, orders: d.orders };
+    };
+
     const today = format(new Date(), 'yyyy-MM-dd');
     const yesterday = format(subDays(new Date(), 1), 'yyyy-MM-dd');
-    const last7Days = dailyStats.slice(0, 7);
-    const prev7Days = dailyStats.slice(7, 14);
+    
+    // We must remap dailyStats to use best data for totals calculation
+    const enhancedStats = dailyStats.map(d => ({ ...d, ...getBestStat(d) }));
+    
+    const last7Days = enhancedStats.slice(0, 7);
+    const prev7Days = enhancedStats.slice(7, 14);
 
-    const todayStat = dailyStats.find(d => d.date === today);
-    const yesterdayStat = dailyStats.find(d => d.date === yesterday);
+    const todayStat = enhancedStats.find(d => d.date === today);
+    const yesterdayStat = enhancedStats.find(d => d.date === yesterday);
 
-    const totalRevenue = dailyStats.reduce((sum, d) => sum + d.revenue, 0);
-    const totalOrders = dailyStats.reduce((sum, d) => sum + d.orders, 0);
+    const totalRevenue = enhancedStats.reduce((sum, d) => sum + d.revenue, 0);
+    const totalOrders = enhancedStats.reduce((sum, d) => sum + d.orders, 0);
     const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
     const last7Revenue = last7Days.reduce((sum, d) => sum + d.revenue, 0);
@@ -122,7 +190,7 @@ export default function AnalyticsPage() {
       end: new Date(dateRange.end) 
     }).length;
 
-    const bestDay = dailyStats.reduce((best, d) => d.revenue > (best?.revenue || 0) ? d : best, null);
+    const bestDay = enhancedStats.reduce((best, d) => d.revenue > (best?.revenue || 0) ? d : best, null);
 
     return {
       totalRevenue,
@@ -137,7 +205,7 @@ export default function AnalyticsPage() {
       archivePercent: totalDays > 0 ? Math.round((archivedDays / totalDays) * 100) : 0,
       bestDay
     };
-  }, [dailyStats, archiveJobs, dateRange]);
+  }, [dailyStats, archiveJobs, archiveStats, dateRange]);
 
   // Get unified daily data
   const unifiedData = useMemo(() => {
@@ -148,25 +216,39 @@ export default function AnalyticsPage() {
 
     return days.map(day => {
       const dateStr = format(day, 'yyyy-MM-dd');
-      // Try exact string match first, then fallback to date object comparison if needed
-      const stat = dailyStats.find(s => {
-          if (s.date === dateStr) return true;
-          try {
-             return new Date(s.date).toISOString().split('T')[0] === dateStr;
-          } catch(e) { return false; }
-      });
       const job = archiveJobs.find(j => j.archive_day === dateStr);
+      const isArchived = ['EXPORTED', 'SYNCED'].includes(job?.status);
       
+      // Source of Truth Hierarchy:
+      // 1. Archive Stats (loaded from Compare endpoint) - Contains deleted data
+      // 2. Live Stats (from Sales API) - Misses deleted data
+      
+      const archStat = archiveStats[dateStr];
+      const liveStat = dailyStats.find(s => {
+          if (s.date === dateStr) return true;
+          try { return new Date(s.date).toISOString().split('T')[0] === dateStr; } 
+          catch(e) { return false; }
+      });
+
+      let finalRevenue = liveStat?.revenue || 0;
+      let finalOrders = liveStat?.orders || 0;
+
+      // If we have authoritative archive data, use it (it likely includes deleted orders)
+      if (archStat) {
+         finalRevenue = archStat.revenue;
+         finalOrders = archStat.orders;
+      }
+
       return {
         date: day,
         dateStr,
-        revenue: stat?.revenue || 0,
-        orders: stat?.orders || 0,
-        archived: ['EXPORTED', 'SYNCED'].includes(job?.status),
+        revenue: finalRevenue,
+        orders: finalOrders,
+        archived: isArchived,
         archiveStatus: job?.status || 'NOT_ARCHIVED'
       };
     }).reverse();
-  }, [dailyStats, archiveJobs, dateRange]);
+  }, [dailyStats, archiveJobs, archiveStats, dateRange]);
 
   const maxRevenue = Math.max(...unifiedData.map(d => d.revenue), 1);
 

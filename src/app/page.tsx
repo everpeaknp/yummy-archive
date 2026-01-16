@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [totalSales, setTotalSales] = useState(0);
   const [loading, setLoading] = useState(false);
   const [creatingJobForDate, setCreatingJobForDate] = useState<string | null>(null);
+  const [debugBanner, setDebugBanner] = useState<string>('');
 
   useEffect(() => {
     if (!isAuthenticated) router.push('/login');
@@ -41,135 +42,239 @@ export default function Dashboard() {
     return [];
   };
 
-  const fetchJobs = async () => {
+  const fetchDashboardData = async () => {
     if (!restaurantId) return;
     setLoading(true);
-    const start = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-    const end = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
-
+    
     try {
-      const resJobs = await archiveApi.get(`/archive/jobs?start_day=${start}&end_day=${end}`);
-      setJobs(resJobs.data.jobs || []);
-    } catch (err: any) {
-      console.error("Failed to fetch jobs", err);
-    }
+      const start = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+      const end = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
 
-    try {
-      const resSales = await mainApi.get(`/sales/?restaurant_id=${restaurantId}&filter=daily`);
-      const salesData = resSales.data?.data || resSales.data;
-      let mappedStats: any[] = [];
+      // 1. Parallel Fetch: Jobs, Sales, Live Orders
+      let recentOrders: any[] = [];
+      let fetchDebug = "Init";
       
+      try {
+        // Try to fetch with date range to ensure we get all orders for the view
+        const ordersRes = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&start_date=${start}&end_date=${end}&limit=1000`);
+        if (Array.isArray(ordersRes.data)) {
+           recentOrders = ordersRes.data;
+           fetchDebug = `Array (${ordersRes.data.length})`;
+        } else if (ordersRes.data?.data?.orders && Array.isArray(ordersRes.data.data.orders)) {
+           recentOrders = ordersRes.data.data.orders;
+           fetchDebug = `Obj.data.orders (${recentOrders.length})`;
+        } else if (ordersRes.data && Array.isArray(ordersRes.data.data)) {
+           recentOrders = ordersRes.data.data;
+           fetchDebug = `Obj.data (${recentOrders.length})`;
+        } else if (ordersRes.data && Array.isArray(ordersRes.data.orders)) {
+           recentOrders = ordersRes.data.orders;
+           fetchDebug = `Obj.orders (${recentOrders.length})`;
+        } else if (ordersRes.data && Array.isArray(ordersRes.data.results)) {
+           recentOrders = ordersRes.data.results;
+           fetchDebug = `Obj.results (${recentOrders.length})`;
+        } else if (ordersRes.data && Array.isArray(ordersRes.data.items)) {
+           recentOrders = ordersRes.data.items;
+           fetchDebug = `Obj.items (${recentOrders.length})`;
+        } else {
+           const keys = ordersRes.data ? Object.keys(ordersRes.data).join(', ') : 'null';
+           fetchDebug = `Keys: [${keys}]`;
+           console.log("Unknown orders response:", ordersRes.data);
+        }
+      } catch (err: any) {
+        fetchDebug = `Err: ${err.message}`;
+        console.error("Orders Fetch Error:", err);
+      }
+
+      const [resJobs, resSales] = await Promise.all([
+        archiveApi.get(`/archive/jobs?start_day=${start}&end_day=${end}`).catch(e => ({ data: { jobs: [] } })),
+        mainApi.get(`/sales/?restaurant_id=${restaurantId}&filter=daily`).catch(e => ({ data: {} })),
+      ]); // orders fetched separately above
+
+      // Process Jobs
+      let fetchedJobs = resJobs.data.jobs || [];
+      
+      // Process Sales
+      const salesData = resSales.data?.data || resSales.data;
       if (salesData?.periods && Array.isArray(salesData.periods)) {
-        mappedStats = salesData.periods.map((item: any) => ({
+        const mappedStats = salesData.periods.map((item: any) => ({
           date: item.period || item.date,
           order_count: item.orders || item.order_count || 0,
           total_amount: item.sales || item.total_amount || 0
         }));
+        setDailyStats(mappedStats);
       }
       
       if (salesData?.total_orders !== undefined) {
         setTotalOrders(salesData.total_orders || 0);
         setTotalSales(salesData.total_sales || salesData.total_amount || 0);
       }
-      
-      setDailyStats(mappedStats);
-    } catch (err: any) {
-      console.warn("Sales endpoint failed", err);
+
+      // Process Live Orders
+      // console.log('DEBUG: resOrders raw:', recentOrders);
+      const orders = parseOrdersResponse(recentOrders).filter((o: any) => {
+        const s = o.status?.toLowerCase();
+        return s === 'completed' || s === 'paid';
+      });
+      console.log('DEBUG: Filtered completed/paid orders:', orders.length, orders.slice(0, 5));
+      setAllRecentOrders(orders);
+
+      // 2. Hydration: Fetch Compare/Manifest for relevant jobs
+      // We do this BEFORE setting loading to false to prevent UI flash
+      const jobsNeedingData = fetchedJobs.filter((j: any) => 
+        ['EXPORTED', 'SYNCED'].includes(j.status)
+      );
+
+      const updates = new Map<string, { orders?: number }>();
+      const idsUpdate = new Map<string, Set<number>>();
+
+      if (jobsNeedingData.length > 0) {
+        await Promise.all(jobsNeedingData.map(async (job: any) => {
+          const update: { orders?: number } = {};
+          
+          try {
+            // 1. Fetch COMPARE (for new/safe-to-delete logic)
+            const compareRes = await archiveApi.get(`/archive/${job.job_id}/compare`, {
+              headers: { 'X-Restaurant-ID': String(job.restaurant_id) }
+            });
+            
+            if (Array.isArray(compareRes.data?.order_ids?.safe_to_delete)) {
+              const safe = compareRes.data.order_ids.safe_to_delete || [];
+              const deleted = compareRes.data.order_ids.already_deleted || [];
+              const allArchived = new Set([...safe, ...deleted]);
+              idsUpdate.set(job.job_id, allArchived); 
+            }
+
+            // 2. Fetch QUERY (for strict count of COMPLETED orders only)
+            // We cannot rely on metadata row_counts because it includes PENDING/CANCELLED
+            const queryRes = await archiveApi.get(`/archive/${job.job_id}/query/orders`);
+            const allArchivedRaw = parseOrdersResponse(queryRes.data);
+            
+            // FILTER strict valid orders
+            const validArchivedOrders = allArchivedRaw.filter((o: any) => {
+              const s = o.status?.toLowerCase();
+              return s === 'completed' || s === 'paid';
+            });
+
+            update.orders = validArchivedOrders.length;
+
+            // CRITICAL FIX: Update idsUpdate to ONLY include the IDs of strictly completed orders.
+            // Previously, we used 'compareRes' which included ALL archived IDs (even pending).
+            // This caused 'Pending-in-Archive' orders to be excluded from 'New' counts, masking them completely.
+            // By using strict IDs here, 'Pending-in-Archive' + 'Completed-in-Live' orders will appear as 'New'.
+            const validIds = new Set(validArchivedOrders.map((o: any) => o.id || o.order_id));
+            idsUpdate.set(job.job_id, validIds);
+
+          } catch (e) {
+            console.warn(`Failed to fetch details for ${job.job_id}`, e);
+            // Fallback to metadata if query fails
+            update.orders = job.row_counts?.orders || 0;
+          }
+          
+          if (update.orders !== undefined) {
+            updates.set(job.job_id, update);
+          }
+        }));
+      }
+
+      // Process Orders
+      const allOrders = recentOrders;
+
+      // Helper: Strict Nepal Date (UTC + 5:45)
+      const getNepalDate = (isoString: string) => {
+          const date = new Date(isoString);
+          if (isNaN(date.getTime())) return "";
+          // Nepal is UTC + 5:45
+          // Add offset in milliseconds: (5 * 60 + 45) * 60 * 1000 = 20700000
+          const nepalTime = date.getTime() + 20700000;
+          return new Date(nepalTime).toISOString().split('T')[0];
+      };
+
+      // 3. STRICT TOTALS CALCULATION
+      // We ignore backend 'total_orders' because it includes cancelled orders.
+      // We reconstruct the total by summing up the strict daily counts.
+      let calcTotalOrders = 0;
+
+      const updatedJobs = fetchedJobs.map((job: any) => {
+        const update = updates.get(job.job_id);
+        if (update) {
+          return {
+            ...job,
+            row_counts: {
+              ...job.row_counts,
+              orders: update.orders
+            }
+          };
+        }
+        return job;
+      });
+
+      const daysInMonth = eachDayOfInterval({
+        start: startOfMonth(currentMonth),
+        end: endOfMonth(currentMonth)
+      });
+
+      daysInMonth.forEach(day => {
+        const dateStr = format(day, 'yyyy-MM-dd');
+        
+        // Find Job in UPDATED list
+        const job = updatedJobs.find((j: any) => j.archive_day === dateStr && ['EXPORTED', 'SYNCED'].includes(j.status));
+        const jobCount = job ? (job.row_counts?.orders || 0) : 0;
+        
+        // Find Live Strict (Local Date Only)
+        const dayStrictLive = orders.filter((o: any) => {
+            const t = o.created_at || o.business_date;
+            if (!t) return false;
+            const nd = getNepalDate(t);
+            // DEBUG: Specific check for Jan 15 anomalies
+            if (dateStr === '2026-01-15' && nd === '2026-01-15') {
+                 console.log(`[Jan15 LEAK] Found order ${o.id} Time=${t} NepalDate=${nd}`);
+            }
+            return nd === dateStr;
+        });
+
+        // Calculate Day Total (Logic matches Card)
+        let dayTotal = 0;
+
+        if (job) {
+             // New = Live strict that are NOT in archive IDs
+             const jobIds = idsUpdate.get(job.job_id);
+             const newOrders = jobIds 
+                ? dayStrictLive.filter((o: any) => !jobIds.has(o.id || o.order_id))
+                : dayStrictLive; 
+             
+             // For count:
+             const newCount = jobIds 
+                ? newOrders.length
+                : Math.max(0, dayStrictLive.length - jobCount);
+             
+             dayTotal = jobCount + newCount;
+             
+        } else {
+             dayTotal = dayStrictLive.length;
+        }
+        
+        calcTotalOrders += dayTotal;
+      });
+
+      // Update State
+      setTotalOrders(calcTotalOrders);
+      setJobs(updatedJobs);
+      setArchivedJobIds(prev => {
+        const next = new Map(prev);
+        idsUpdate.forEach((ids, jobId) => next.set(jobId, ids));
+        return next;
+      });
+
+    } catch (err) {
+      console.error("Dashboard fetch failed", err);
     } finally {
       setLoading(false);
-    }
-
-    // Fetch live orders IDs for accurate "New" count
-    try {
-      const resOrders = await mainApi.get(`/orders/?restaurant_id=${restaurantId}&limit=1000`);
-      const orders = parseOrdersResponse(resOrders.data);
-      setAllRecentOrders(orders);
-    } catch (e) {
-      console.warn("Failed to fetch orders list", e);
     }
   };
 
   useEffect(() => {
-    fetchJobs();
+    fetchDashboardData();
   }, [restaurantId, currentMonth]);
-
-  // Hydrate jobs with manifest data
-  useEffect(() => {
-    const fetchJobDetails = async () => {
-      const jobsNeedingData = jobs.filter(j => 
-        ['EXPORTED', 'SYNCED'].includes(j.status) && 
-        ((j.row_counts?.orders === undefined) || !archivedJobIds.has(j.job_id))
-      );
-
-      if (jobsNeedingData.length === 0) return;
-
-      const updates = new Map<string, { orders?: number }>();
-      const idsUpdate = new Map<string, Set<number>>();
-      
-      await Promise.all(jobsNeedingData.map(async (job) => {
-        const update: { orders?: number } = {};
-        
-        try {
-          const compareRes = await archiveApi.get(`/archive/${job.job_id}/compare`, {
-            headers: { 'X-Restaurant-ID': String(job.restaurant_id) }
-          });
-          
-          if (compareRes.data?.summary) {
-            update.orders = compareRes.data.summary.archived_orders;
-          }
-          
-          if (Array.isArray(compareRes.data?.order_ids?.safe_to_delete)) {
-            // Include both safe_to_delete and already_deleted as "known archived"
-            const safe = compareRes.data.order_ids.safe_to_delete || [];
-            const deleted = compareRes.data.order_ids.already_deleted || [];
-            const allArchived = new Set([...safe, ...deleted]);
-            idsUpdate.set(job.job_id, allArchived);
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch comparison for ${job.job_id}`, e);
-          // Fallback to manifest if compare fails
-          try {
-            const manifestRes = await archiveApi.get(`/archive/${job.job_id}/manifest`);
-            update.orders = manifestRes.data?.row_counts?.orders || 0;
-            if (Array.isArray(manifestRes.data?.order_ids)) {
-              idsUpdate.set(job.job_id, new Set(manifestRes.data.order_ids));
-            }
-          } catch (err) {
-            console.warn(`Fallback manifest fetch failed for ${job.job_id}`, err);
-          }
-        }
-        
-        if (update.orders !== undefined) {
-          updates.set(job.job_id, update);
-        }
-      }));
-
-      // Update IDs Map
-      if (idsUpdate.size > 0) {
-        setArchivedJobIds(prev => {
-          const next = new Map(prev);
-          idsUpdate.forEach((ids, jobId) => next.set(jobId, ids));
-          return next;
-        });
-      }
-
-      // Update Jobs State
-      if (updates.size > 0) {
-        setJobs(prev => prev.map(j => {
-          const update = updates.get(j.job_id);
-          if (update) {
-            return { 
-              ...j, 
-              row_counts: { ...j.row_counts, orders: update.orders ?? j.row_counts?.orders }
-            } as any;
-          }
-          return j;
-        }));
-      }
-    };
-
-    fetchJobDetails();
-  }, [jobs.length]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentMonth(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
@@ -213,13 +318,24 @@ export default function Dashboard() {
 
   // Calculate summary stats
   const archivedDaysCount = jobs.filter(j => ['EXPORTED', 'SYNCED'].includes(j.status)).length;
-  const totalArchivedOrders = jobs.reduce((sum, j) => {
-    const anyJob = j as any;
-    return sum + (anyJob.row_counts?.orders || anyJob.row_count || anyJob.orders_count || 0);
+  // FIX: Only count successful jobs
+  const totalArchivedOrders = jobs
+    .filter(j => ['EXPORTED', 'SYNCED'].includes(j.status))
+    .reduce((sum, j) => {
+      const anyJob = j as any;
+      return sum + (anyJob.row_counts?.orders || anyJob.row_count || anyJob.orders_count || 0);
   }, 0);
 
   return (
     <div className="space-y-4 md:space-y-6 pb-20 md:pb-0">
+      {/* Debug Banner */}
+      {debugBanner && (
+        <div className="mb-4 p-2 bg-red-100 border border-red-300 rounded text-red-700 font-mono text-sm">
+          <strong>DEBUG INFO:</strong> {debugBanner}
+        </div>
+      )}
+
+      <div className="max-w-5xl mx-auto space-y-8">
       {/* Hero Section */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-5 md:p-8 text-white">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
@@ -232,7 +348,7 @@ export default function Dashboard() {
               <h1 className="text-2xl md:text-3xl font-bold">Archive Dashboard</h1>
             </div>
             <Button 
-              onClick={fetchJobs} 
+              onClick={fetchDashboardData} 
               disabled={loading}
               className="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 border-0 text-white p-0"
             >
@@ -243,15 +359,27 @@ export default function Dashboard() {
           {/* Quick Stats */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <p className="text-2xl md:text-3xl font-bold">{totalOrders}</p>
+              {loading ? (
+                <div className="h-8 w-16 bg-white/20 rounded mx-auto mb-1 animate-pulse" />
+              ) : (
+                <p className="text-2xl md:text-3xl font-bold">{totalOrders}</p>
+              )}
               <p className="text-xs md:text-sm text-blue-200">Orders</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <p className="text-2xl md:text-3xl font-bold">{totalArchivedOrders}</p>
+              {loading ? (
+                <div className="h-8 w-16 bg-white/20 rounded mx-auto mb-1 animate-pulse" />
+              ) : (
+                <p className="text-2xl md:text-3xl font-bold">{totalArchivedOrders}</p>
+              )}
               <p className="text-xs md:text-sm text-blue-200">Archived</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <p className="text-2xl md:text-3xl font-bold">Rs.{(totalSales/1000).toFixed(0)}k</p>
+              {loading ? (
+                <div className="h-8 w-24 bg-white/20 rounded mx-auto mb-1 animate-pulse" />
+              ) : (
+                <p className="text-2xl md:text-3xl font-bold">Rs.{(totalSales/1000).toFixed(0)}k</p>
+              )}
               <p className="text-xs md:text-sm text-blue-200">Revenue</p>
             </div>
           </div>
@@ -290,17 +418,33 @@ export default function Dashboard() {
 
       {/* Days List */}
       <div className="space-y-3">
-        {loading && days.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-3" />
-            <p className="text-slate-500">Loading archives...</p>
-          </div>
+        {loading ? (
+          // Skeleton Loading State
+          Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i} className="overflow-hidden border-slate-100">
+              <CardContent className="p-0">
+                <div className="flex items-stretch h-24">
+                  <div className="w-16 md:w-20 bg-slate-50 shrink-0 flex items-center justify-center border-r border-slate-100">
+                    <div className="h-8 w-8 bg-slate-200 rounded animate-pulse" />
+                  </div>
+                  <div className="flex-1 p-3 md:p-4 flex flex-col justify-center gap-3">
+                    <div className="h-4 w-32 bg-slate-100 rounded animate-pulse" />
+                    <div className="flex items-center justify-between">
+                      <div className="h-3 w-24 bg-slate-100 rounded animate-pulse" />
+                      <div className="h-8 w-20 bg-slate-100 rounded-full animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
         ) : (
           days.map(day => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const stat = dailyStats.find(s => s.date === dateStr);
             const job = getJobForDate(dateStr);
             const isFuture = day > new Date();
+            // ... (rest of logic)
             const today = isToday(day);
             
             // Filter live orders for this day using exact logic from OrdersDayPage
@@ -308,20 +452,31 @@ export default function Dashboard() {
               const timestamp = o.created_at || o.business_date;
               if (!timestamp) return false;
               // Strict UTC prefix check OR Local date check
-              return timestamp.startsWith(dateStr) || new Date(timestamp).toLocaleDateString('en-CA') === dateStr;
+              const match = timestamp.startsWith(dateStr) || new Date(timestamp).toLocaleDateString('en-CA') === dateStr;
+              if (dateStr === '2026-01-15' && !match) {
+                 // console.log('DEBUG: Skipped Jan 15 order:', o.id, timestamp);
+              }
+              return match;
             });
+            if (dateStr === '2026-01-15') {
+               console.log('DEBUG: Jan 15 Live Orders:', dayLiveOrders.length, dayLiveOrders.map((o:any) => o.id));
+            }
 
             const archivedIds = job ? archivedJobIds.get(job.job_id) : undefined;
-            const totalCount = Math.max(stat?.order_count || 0, dayLiveOrders.length);
             const anyJob = job as any;
             const archivedCount = job ? (anyJob.row_counts?.orders || anyJob.row_count || anyJob.orders_count || 0) : 0;
-            
+
             // New Orders: Filter day's live orders against known archived IDs
             const newOrdersCount = archivedIds 
               ? dayLiveOrders.filter(o => !archivedIds.has(o.id || o.order_id)).length
               : (job && ['EXPORTED', 'SYNCED'].includes(job.status)) 
-                  ? Math.max(0, totalCount - archivedCount)
-                  : 0;
+                ? Math.max(0, dayLiveOrders.length - archivedCount) // Fallback if IDs missing
+                : dayLiveOrders.length;
+            
+            // Total Count: Prioritize our filtered counts over backend stats (which might include cancelled)
+            const totalCount = job && ['EXPORTED', 'SYNCED'].includes(job.status)
+              ? archivedCount + newOrdersCount
+              : dayLiveOrders.length;
             
             const canAppend = job && ['EXPORTED', 'SYNCED'].includes(job.status) && newOrdersCount > 0;
             const hasOrders = totalCount > 0 || archivedCount > 0;
@@ -362,7 +517,7 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             {hasOrders ? (
                               <>
-                                <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                                <span className="inline-flex items-center gap-1 text-xs text-slate-500 whitespace-nowrap">
                                   <Database className="h-3 w-3" />
                                   {totalCount} orders
                                 </span>
@@ -452,6 +607,7 @@ export default function Dashboard() {
           <p className="text-slate-500">Archives will appear here once you have orders.</p>
         </div>
       )}
+      </div>
     </div>
   );
 }

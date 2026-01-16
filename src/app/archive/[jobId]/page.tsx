@@ -52,7 +52,10 @@ export default function ArchiveDetailsPage() {
   const [deleting, setDeleting] = useState(false);
   const [missingFile, setMissingFile] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
-  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [page, setPage] = useState(0); 
+  const observerTarget = React.useRef<HTMLDivElement>(null);
   const LIMIT = 50;
 
   useEffect(() => {
@@ -63,9 +66,31 @@ export default function ArchiveDetailsPage() {
 
   useEffect(() => {
     if (['EXPORTED', 'SYNCED'].includes(job?.status || '')) {
-      fetchOrders();
+      // Create separate function to allow "reset" vs "append"
+      fetchOrders(0, true);
     }
-  }, [job, page]);
+  }, [job]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !ordersLoading && !isFetchingMore) {
+          setPage(prev => {
+            const nextPage = prev + 1;
+            fetchOrders(nextPage, false);
+            return nextPage; 
+          });
+        }
+      },
+      { threshold: 1.0 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasMore, ordersLoading, isFetchingMore]);
 
   // Poll for status updates if processing
   useEffect(() => {
@@ -97,19 +122,66 @@ export default function ArchiveDetailsPage() {
     }
   };
 
-  const fetchOrders = async () => {
-    setOrdersLoading(true);
+  const fetchOrders = async (pageIdx: number, reset: boolean) => {
+    if (reset) {
+      setOrdersLoading(true);
+      setPage(0);
+    } else {
+      setIsFetchingMore(true);
+    }
+
     try {
-      const offset = page * LIMIT;
+      const offset = pageIdx * LIMIT;
+      // We fetch sorting ASC or DESC? Usually Latest first for archives? API default is ???
+      // User said "upto now", implying timeline.
       const res = await archiveApi.get(`/archive/${jobId}/query/orders?limit=${LIMIT}&offset=${offset}&sort_desc=true`);
-      setOrders(res.data.data || []);
+      const rawOrders: OrderData[] = res.data.data || [];
+      
+      // Strict Filter: 
+      // 1. Only show strictly Completed/Paid orders
+      // 2. Only show orders that actually belong to the Archive Day (dates match)
+      const validOrders = rawOrders.filter(o => {
+        const s = o.status?.toLowerCase();
+        const isCompleted = s === 'completed' || s === 'paid';
+        
+        let isSameDay = true;
+        if (job?.archive_day && o.created_at) {
+           // Compare YYYY-MM-DD parts. 
+           // Note: created_at is ISO (UTC). archive_day is YYYY-MM-DD.
+           // We check if the UTC date string starts with the archive day.
+           // This aligns with how the backend usually queries by date.
+           isSameDay = o.created_at.startsWith(job.archive_day);
+        }
+
+        return isCompleted && isSameDay;
+      });
+
+      if (reset) {
+        setOrders(validOrders);
+      } else {
+        setOrders(prev => {
+          // Dedupe just in case
+          const newIds = new Set(prev.map(p => p.id));
+          const uniqueNew = validOrders.filter(o => !newIds.has(o.id));
+          return [...prev, ...uniqueNew];
+        });
+      }
+
+      // Check if we reached the end of the distinct list
+      if (rawOrders.length < LIMIT) {
+        setHasMore(false);
+      } else {
+        setHasMore(true);
+      }
+
     } catch (err: any) {
       if (err.response?.status === 410 || err.response?.status === 500) {
         setMissingFile(true);
       }
-      setOrders([]);
+      if (reset) setOrders([]);
     } finally {
       setOrdersLoading(false);
+      setIsFetchingMore(false);
     }
   };
 
@@ -168,7 +240,9 @@ export default function ArchiveDetailsPage() {
   const isComplete = ['EXPORTED', 'SYNCED'].includes(job.status);
   const isProcessing = ['PENDING', 'APPENDING', 'IN_PROGRESS', 'EXPORTING'].includes(job.status);
   const isFailed = job.status === 'FAILED';
-  const ordersCount = manifest?.row_counts?.orders || orders.length;
+  
+  // Use strictly calculation based on loaded valid orders
+  const ordersCount = orders.length;
   const totalRevenue = orders.reduce((sum, o) => sum + getOrderTotal(o), 0);
 
   return (
@@ -251,14 +325,18 @@ export default function ArchiveDetailsPage() {
           </div>
 
           {/* Stats - Only when complete */}
+          {/* Note: Showing LOADED count/revenue. Might increase as you scroll, which is safer than showing wrong metadata. */}
           {isComplete && !missingFile && (
             <div className="grid grid-cols-2 gap-2 text-center mt-3 pt-3 border-t border-white/20">
               <div className="bg-white/10 rounded-xl p-2 md:p-3">
-                <p className="text-xl md:text-2xl font-bold">{ordersCount}</p>
-                <p className="text-[10px] md:text-xs opacity-80">Orders</p>
+                <div className="flex items-center justify-center gap-1">
+                 <p className="text-xl md:text-2xl font-bold">{ordersCount}</p>
+                 {hasMore && <span className="text-xs opacity-70 align-top">+</span>}
+                </div>
+                <p className="text-[10px] md:text-xs opacity-80">Completed Orders</p>
               </div>
               <div className="bg-white/10 rounded-xl p-2 md:p-3">
-                <p className="text-lg md:text-2xl font-bold truncate">Rs.{totalRevenue >= 1000 ? `${(totalRevenue/1000).toFixed(0)}k` : totalRevenue}</p>
+                <p className="text-lg md:text-2xl font-bold truncate">Rs. {totalRevenue.toLocaleString()}</p>
                 <p className="text-[10px] md:text-xs opacity-80">Revenue</p>
               </div>
             </div>
@@ -315,10 +393,10 @@ export default function ArchiveDetailsPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-lg font-semibold text-slate-900">Archived Orders</h2>
-            <span className="text-sm text-slate-500">{ordersCount} total</span>
+            {/* <span className="text-sm text-slate-500">{ordersCount} loaded</span> */}
           </div>
 
-          {ordersLoading ? (
+          {ordersLoading && !isFetchingMore ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-3" />
               <p className="text-slate-500">Loading orders...</p>
@@ -326,7 +404,7 @@ export default function ArchiveDetailsPage() {
           ) : orders.length === 0 ? (
             <Card className="p-8 text-center">
               <ShoppingBag className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-500">No orders in this archive</p>
+              <p className="text-slate-500">No completed orders found</p>
             </Card>
           ) : (
             <>
@@ -336,7 +414,7 @@ export default function ArchiveDetailsPage() {
 
                 return (
                   <Card 
-                    key={orderId} 
+                    key={`${orderId}-${order.created_at}`} 
                     className="overflow-hidden transition-all duration-200 hover:shadow-md"
                   >
                     <CardContent className="p-0">
@@ -415,28 +493,23 @@ export default function ArchiveDetailsPage() {
                 );
               })}
 
-              {/* Pagination */}
-              {orders.length >= LIMIT && (
-                <div className="flex items-center justify-between pt-4">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => setPage(p => Math.max(0, p - 1))} 
-                    disabled={page === 0}
-                    className="rounded-full"
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm text-slate-500">Page {page + 1}</span>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => setPage(p => p + 1)} 
-                    disabled={orders.length < LIMIT}
-                    className="rounded-full"
-                  >
-                    Next
-                  </Button>
+              {/* Infinite Scroll Trigger */}
+              {hasMore && (
+                <div 
+                  ref={observerTarget} 
+                  className="flex justify-center py-6"
+                >
+                  {isFetchingMore ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  ) : (
+                    <span className="text-sm text-slate-400">Load more...</span>
+                  )}
+                </div>
+              )}
+              
+              {!hasMore && orders.length > 0 && (
+                <div className="text-center py-6 text-slate-400 text-sm">
+                  --- End of List ---
                 </div>
               )}
             </>
